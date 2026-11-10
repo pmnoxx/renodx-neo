@@ -25,9 +25,10 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-    CustomShaderEntry(0x1880F22A),
-    CustomShaderEntry(0x5C733846),
-    CustomShaderEntry(0x18F1647D),
+    // Keep extracted game filenames and all known aliases beside each hash when entries change.
+    CustomShaderEntry(0x1880F22A),  // erc_nospfx.dll, embedded DXBC at file offset 0x718e10 (artwork/UI composite).
+    CustomShaderEntry(0x5C733846),  // adv/sys/compositor_crossfade.dx11.pso; compositor_retrospective.dx11.pso
+    CustomShaderEntry(0x18F1647D),  // adv/sys/compositor_whitein.dx11.pso; compositor_retrospective_flashback.dx11.pso
 };
 
 ShaderInjectData shader_injection;

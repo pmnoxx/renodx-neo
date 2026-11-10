@@ -31,3 +31,5 @@ Save 14 also exercises the final artwork/UI composite shader `0x1880F22A`. Float
 
 Extracted transition shaders include timing, UV and trigonometric clamps. These must remain intact; removing every saturate/min/max is not an HDR fix. Source artwork may already be clipped, independently of render-target precision.
 
+
+When adding or changing `custom_shaders`, keep each CRC32 entry mapped to its original in-game shader filename in an adjacent comment. Include every known filename alias for identical bytecode. For shaders embedded in a binary, record the binary name and extraction offset instead of inventing an asset path. The extracted `adv/sys` manifest is the naming reference for compositor shaders.
