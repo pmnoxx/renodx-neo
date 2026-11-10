@@ -3964,13 +3964,17 @@ void ProcessPendingLiveShaderRequests(
           {
             std::unique_lock device_lock(device_data->mutex);
             for (auto& [shader_hash, shader_details] : device_data->shader_details) {
-              (void)shader_hash;
               if (shader_details.shader_source == ShaderDetails::ShaderSource::DISK_SHADER) {
-                shader_details.shader_source = ShaderDetails::ShaderSource::ORIGINAL_SHADER;
+                renodx::utils::shader::RemoveRuntimeReplacements(device_data->device, {shader_hash});
+                if (shader_details.addon_shader.empty()) {
+                  shader_details.shader_source = ShaderDetails::ShaderSource::ORIGINAL_SHADER;
+                } else {
+                  renodx::utils::shader::AddRuntimeReplacement(device_data->device, shader_hash, shader_details.addon_shader);
+                  shader_details.shader_source = ShaderDetails::ShaderSource::ADDON_SHADER;
+                }
                 reset_count += 1u;
               }
             }
-            renodx::utils::shader::RemoveRuntimeReplacements(device_data->device);
           }
           setting_live_reload = false;
           (void)renodx::utils::shader::compiler::watcher::CompileSync();
