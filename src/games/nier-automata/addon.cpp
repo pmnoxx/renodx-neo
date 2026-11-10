@@ -27,6 +27,7 @@
 
 #include "../../utils/iat_hook.hpp"
 #include "../../utils/vtable.hpp"
+#include "../../utils/platform.hpp"
 
 namespace {
 
@@ -170,6 +171,11 @@ void OnOverlay(reshade::api::effect_runtime*) {
   if (ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur)) {
     reshade::set_config_value(
         nullptr, "renodx-nier_automata", "DisableCameraMotionBlur", uint32_t(disable_camera_motion_blur));
+  }
+  ImGui::Separator();
+  ImGui::TextUnformatted("Miscellaneous");
+  if (ImGui::Button("Buy me a Ko-Fi")) {
+    renodx::utils::platform::LaunchURL("https://ko-fi.com/shortfuse");
   }
 }
 

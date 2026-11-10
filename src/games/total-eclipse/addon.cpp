@@ -24,6 +24,7 @@
 #include "../../utils/render.hpp"
 #include "../../utils/resource_upgrade.hpp"
 #include "../../utils/detour.hpp"
+#include "../../utils/platform.hpp"
 #include "./shared.h"
 
 namespace {
@@ -592,6 +593,15 @@ renodx::utils::settings::Settings settings = {
         .is_enabled = []() { return shader_injection.tone_map_type >= 1; },
         .parse = [](float value) { return value - 1.f; },
         .is_visible = []() { return current_settings_mode >= 2; },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "Buy me a Ko-Fi",
+        .section = "Miscellaneous",
+        .tint = 0xFF5F5F,
+        .on_change = []() {
+          renodx::utils::platform::LaunchURL("https://ko-fi.com/shortfuse");
+        },
     },
 };
 
