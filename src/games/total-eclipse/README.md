@@ -3,10 +3,10 @@
 Experimental D3D11 HDR output and composite-resource preservation. Build with:
 
 ```powershell
-cmake --build build --config Debug --target total_eclipse
+cmake --build build --config Debug --target total-eclipse
 ```
 
-Output: `build/Debug/renodx-total_eclipse.addon64`.
+Output: `build/Debug/renodx-total-eclipse.addon64`.
 
 ## Additional compositor alpha compatibility
 
@@ -60,7 +60,7 @@ Compilation does not establish original/baseline runtime equivalence.
 Runtime verification is pending: compare original bytecode, unchanged baseline
 and replacement at matching intermediate transition frames and endpoints;
 check artwork, subtitles, menus and new save thumbnails. Confirm all eight
-CRC-addressed shader embeds are included by the `total_eclipse` build and active
+CRC-addressed shader embeds are included by the `total-eclipse` build and active
 as Add-on replacements without live disk overrides after restart. Shader alpha
 clamps do not emulate UNORM quantization or destination clamping after blending.
 
@@ -93,6 +93,16 @@ When adding or changing `custom_shaders`, keep each CRC32 entry mapped to its or
 The pattern wipe `0xA4BA7C88` (`compositor_pattern.dx11.pso`) also clamps sampled scene alpha and output alpha. An animated scene can switch from ordinary crossfade to this pass; fixing crossfade alone leaves pattern transitions unstable. The paused rainy scene reproduced the failure with the original and unmodified decompiled pattern shader. The alpha-only replacement restored artwork, subtitles and menu composition, without changing the pattern mask or RGB exposure math.
 
 When patching shaders, comment each changed block and retain the original expression in a comment where it is replaced. Mark inserted operations as added, explain the lost UNORM behavior being restored, and leave unrelated original math visible.
+
+## Scenario render resolution
+
+The RenoDX settings include **Scene Resolution**: Native, 3840 x 2160, or the
+current monitor size. The engine's scenario render target is recreated at the
+selected size and rebound to the scene while its logical layout stays at the
+game's original dimensions. Artwork and video keep their source resolution.
+Native mode restores the detected scenario target. Engine hooks install only
+for the validated 1.0.27 x64 executable; other builds remain at native
+resolution.
 
 Keep two files together in this mod folder for every patched game shader:
 `0xHASH.ps_4_0.hlsl` contains the patched replacement, and

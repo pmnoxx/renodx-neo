@@ -1,0 +1,36 @@
+// Reconstructed from the original D3D11 assembly; kept as an inactive baseline.
+cbuffer SceneBuffer : register(b0) {
+  float4 scene_buffer[15];
+}
+cbuffer ParamBuffer : register(b1) {
+  float4 blur_params;
+  float4 old_view_projection[4];
+}
+cbuffer CameraParams : register(b13) {
+  float4 camera_params;
+}
+SamplerState depth_sampler : register(s13);
+Texture2D<float4> depth_texture : register(t13);
+
+float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target0 {
+  float depth = depth_texture.Sample(depth_sampler, uv).r * camera_params.y + camera_params.x;
+  float2 current_ndc = uv * float2(2.0, -2.0) + float2(-1.0, 1.0);
+  float3 view_position = float3(
+      current_ndc.x * depth / scene_buffer[4].x,
+      current_ndc.y * depth / scene_buffer[5].y,
+      -depth);
+  float4 view_position_h = float4(view_position, 1.0);
+  float3 world_position = float3(
+      dot(view_position_h, scene_buffer[12]),
+      dot(view_position_h, scene_buffer[13]),
+      dot(view_position_h, scene_buffer[14]));
+  float4 world_position_h = float4(world_position, 1.0);
+  float2 previous_clip = float2(
+      dot(world_position_h, old_view_projection[0]),
+      dot(world_position_h, old_view_projection[1]));
+  float previous_clip_w = dot(world_position_h, old_view_projection[3]);
+  float2 velocity = (current_ndc - previous_clip / previous_clip_w) * 2.0;
+  float depth_weight = saturate(depth * 0.01);
+  depth_weight *= depth_weight;
+  return float4(velocity * depth_weight * blur_params.x + 0.5, 0.0, 0.0);
+}

@@ -1,1 +1,1 @@
-cmake --build build --config Release --target ALL_BUILD -j 18
+cmake --build build --config Release --target nier-automata -j 18

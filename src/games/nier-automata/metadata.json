@@ -1,6 +1,6 @@
 {
   "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
-  "id": "nier_automata",
+  "id": "nier-automata",
   "title": "NieR:Automata",
   "category": "game",
   "compatibility": "in-progress",

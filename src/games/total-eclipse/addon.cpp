@@ -9,6 +9,9 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstring>
+#include <array>
+#include <Windows.h>
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -20,6 +23,7 @@
 #include "../../utils/settings.hpp"
 #include "../../utils/render.hpp"
 #include "../../utils/resource_upgrade.hpp"
+#include "../../utils/detour.hpp"
 #include "./shared.h"
 
 namespace {
@@ -124,9 +128,156 @@ renodx::mods::shader::CustomShaders custom_shaders = {
 
 ShaderInjectData shader_injection;
 
+// Total Eclipse's scenario target resize is an engine-internal operation. Keep
+// the executable version checks beside the hooks; unsupported builds stay native.
+using BindTarget = void (*)(uintptr_t scene, uintptr_t texture);
+using DrawScreen = void (*)(uintptr_t screen);
+using DestroyScene = void (*)(uintptr_t scene);
+using ResizeScreen = void (*)(uintptr_t screen, int width, int height);
+BindTarget bind_target_original = nullptr;
+DrawScreen draw_screen_original = nullptr;
+DestroyScene destroy_scene_original = nullptr;
+ResizeScreen resize_screen = nullptr;
+std::atomic<int> resolution_mode{0}; // 0 native, 1 4K, 2 monitor.
+float resolution_setting = 0.f;
+std::atomic<uintptr_t> bound_scene{0};
+std::atomic<bool> resolution_hooks_checked{false};
+std::atomic<uint64_t> screen_size{0};
+std::atomic<uint64_t> applied_size{0};
+struct ResolutionOverride {
+  uintptr_t scene = 0;
+  uintptr_t screen = 0;
+  uintptr_t texture = 0;
+  uint64_t native_size = 0;
+};
+ResolutionOverride resolution_override; // Owned by the game's render thread.
+HMODULE addon_module = nullptr;
+
+constexpr uint64_t PackSize(int width, int height) {
+  return static_cast<uint64_t>(static_cast<uint32_t>(width))
+         | (static_cast<uint64_t>(static_cast<uint32_t>(height)) << 32);
+}
+constexpr int SizeWidth(uint64_t size) { return static_cast<int>(size & 0xffffffffu); }
+constexpr int SizeHeight(uint64_t size) { return static_cast<int>(size >> 32); }
+
+template <typename T>
+bool SafeRead(uintptr_t address, T& value) {
+  __try {
+    std::memcpy(&value, reinterpret_cast<const void*>(address), sizeof(T));
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+void BindTargetDetour(uintptr_t scene, uintptr_t texture) {
+  bind_target_original(scene, texture);
+  bound_scene.store(scene);
+}
+
+void DestroySceneDetour(uintptr_t scene) {
+  uintptr_t expected = scene;
+  bound_scene.compare_exchange_strong(expected, 0);
+  if (resolution_override.scene == scene) {
+    resolution_override = {};
+    applied_size.store(0);
+  }
+  destroy_scene_original(scene);
+}
+
+void DrawScreenDetour(uintptr_t screen) {
+  uintptr_t scene_target = 0;
+  uintptr_t current_target = 0;
+  int width = 0;
+  int height = 0;
+  if (SafeRead(screen + 0xf8, current_target) && current_target
+      && (resolution_override.scene = bound_scene.load()) != 0
+      && SafeRead(resolution_override.scene + 0x498, scene_target)
+      && current_target == scene_target
+      && SafeRead(screen + 0x11c, width) && SafeRead(screen + 0x120, height)
+      && width > 0 && width <= 8192 && height > 0 && height <= 8192) {
+    const bool owns_override = resolution_override.screen == screen
+                               && resolution_override.texture == current_target;
+    if (!owns_override) resolution_override = {resolution_override.scene, screen, current_target, PackSize(width, height)};
+    const int mode = resolution_mode.load();
+    const uint64_t desired = mode == 1 ? PackSize(3840, 2160)
+                            : mode == 2 && screen_size.load() != 0 ? screen_size.load()
+                            : mode == 0 && owns_override ? resolution_override.native_size
+                                                        : PackSize(width, height);
+    if (PackSize(width, height) != desired) {
+      resize_screen(screen, SizeWidth(desired), SizeHeight(desired));
+      uintptr_t replacement = 0;
+      if (SafeRead(screen + 0xf8, replacement) && replacement) {
+        bind_target_original(resolution_override.scene, replacement);
+        resolution_override.texture = replacement;
+        applied_size.store(desired);
+      }
+    } else {
+      applied_size.store(desired);
+    }
+    if (mode == 0) resolution_override = {};
+  }
+  draw_screen_original(screen);
+}
+
+bool CheckSignature(uintptr_t base, uintptr_t rva, const unsigned char* expected, size_t count) {
+  unsigned char actual[16]{};
+  return count <= sizeof(actual)
+         && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(base + rva), actual, count, nullptr)
+         && std::memcmp(actual, expected, count) == 0;
+}
+
+void InstallResolutionHooks() {
+#ifdef _WIN64
+  const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+  const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+  constexpr unsigned char bind[] = {0x40, 0x53, 0x48, 0x81, 0xec, 0x90, 0, 0, 0};
+  constexpr unsigned char draw[] = {0x40, 0x55, 0x57, 0x41, 0x54, 0x48, 0x8d, 0x6c, 0x24, 0xd0};
+  constexpr unsigned char resize[] = {0x48, 0x89, 0x5c, 0x24, 0x10, 0x55, 0x48, 0x8d, 0x6c, 0x24, 0xa9};
+  constexpr unsigned char destroy[] = {0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56};
+  if (nt->FileHeader.TimeDateStamp != 0x62ce6d6a || nt->OptionalHeader.SizeOfImage != 0xf17000
+      || !CheckSignature(base, 0x3aabc0, bind, sizeof(bind)) || !CheckSignature(base, 0x40f7f0, draw, sizeof(draw))
+      || !CheckSignature(base, 0x410500, resize, sizeof(resize)) || !CheckSignature(base, 0x37b4f0, destroy, sizeof(destroy))) {
+    reshade::log::message(reshade::log::level::warning, "Total Eclipse resolution: unsupported executable; using native scene resolution.");
+    return;
+  }
+  HMODULE pinned_module = nullptr;
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                          reinterpret_cast<LPCWSTR>(addon_module), &pinned_module)) return;
+  resize_screen = reinterpret_cast<ResizeScreen>(base + 0x410500);
+  const std::array hooks = {
+      renodx::utils::detour::Function(&bind_target_original, &BindTargetDetour),
+      renodx::utils::detour::Function(&destroy_scene_original, &DestroySceneDetour),
+      renodx::utils::detour::Function(&draw_screen_original, &DrawScreenDetour),
+  };
+  // Detours expects each original pointer to start at its target address.
+  bind_target_original = reinterpret_cast<BindTarget>(base + 0x3aabc0);
+  destroy_scene_original = reinterpret_cast<DestroyScene>(base + 0x37b4f0);
+  draw_screen_original = reinterpret_cast<DrawScreen>(base + 0x40f7f0);
+  try {
+    renodx::utils::detour::Install(hooks);
+    reshade::log::message(reshade::log::level::info, "Total Eclipse resolution hooks installed.");
+  } catch (const std::exception& error) {
+    reshade::log::message(reshade::log::level::error, error.what());
+  }
+#endif
+}
+
 float current_settings_mode = 0;
 
 renodx::utils::settings::Settings settings = {
+    new renodx::utils::settings::Setting{
+        .key = "SceneResolution",
+        .binding = &resolution_setting,
+        .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+        .default_value = 0.f,
+        .label = "Scene Resolution",
+        .section = "Display Output",
+        .tooltip = "Render scenario scenes at native, 4K, or the current monitor resolution. Artwork and video retain their source resolution.",
+        .labels = {"Native", "3840 x 2160", "Monitor size"},
+        .max = 2.f,
+    },
     new renodx::utils::settings::Setting{
         .key = "SettingsMode",
         .binding = &current_settings_mode,
@@ -485,6 +636,16 @@ void OnPresent(reshade::api::command_queue* queue,
                const reshade::api::rect* dest_rect,
                uint32_t dirty_rect_count,
                const reshade::api::rect* dirty_rects) {
+  resolution_mode.store(static_cast<int>(resolution_setting));
+  if (!resolution_hooks_checked.exchange(true)) InstallResolutionHooks();
+  if (swapchain != nullptr && swapchain->get_hwnd() != nullptr) {
+    MONITORINFO monitor{sizeof(monitor)};
+    if (GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(swapchain->get_hwnd()), MONITOR_DEFAULTTONEAREST), &monitor)) {
+      const int width = monitor.rcMonitor.right - monitor.rcMonitor.left;
+      const int height = monitor.rcMonitor.bottom - monitor.rcMonitor.top;
+      if (width > 0 && width <= 8192 && height > 0 && height <= 8192) screen_size.store(PackSize(width, height));
+    }
+  }
   auto* device = queue->get_device();
   if (device->get_api() == reshade::api::device_api::opengl) {
     shader_injection.custom_flip_uv_y = 1.f;
@@ -592,6 +753,7 @@ extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH: {
+      addon_module = h_module;
       // Display Commander's DXGI proxy exposes registration exports but is not a full ReShade API provider.
       HMODULE modules[1024];
       DWORD module_bytes = 0;
@@ -607,6 +769,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         }
       }
       if (reshade_module == nullptr || !reshade::register_addon(h_module, reshade_module)) return FALSE;
+      reshade::register_event<reshade::addon_event::present>(OnPresent);
 
       if (!initialized) {
         renodx::mods::shader::force_pipeline_cloning = true;
@@ -736,7 +899,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           renodx::mods::swapchain::use_device_proxy = use_device_proxy;
           renodx::mods::swapchain::set_color_space = !use_device_proxy;
           if (use_device_proxy) {
-            reshade::register_event<reshade::addon_event::present>(OnPresent);
+            // The present callback is also used to install the scenario-resolution hook.
           } else {
             shader_injection.custom_flip_uv_y = 0.f;
           }
