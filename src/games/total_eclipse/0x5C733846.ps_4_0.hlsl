@@ -43,10 +43,13 @@ void main(
   // Float targets retain accumulated alpha; emulate the original UNORM read.
   r1.w = saturate(r1.w);
   r2.xyzw = texture0_g_Texture.Sample(texture0_g_Sampler_s, v1.xy).xyzw;
+  // Added: restore the original UNORM sampled-alpha range; leave RGB unchanged.
   r2.w = saturate(r2.w);
   r1.xyzw = -r2.xyzw + r1.xyzw;
   r1.xyzw = g.rate_g * r1.xyzw + r2.xyzw;
   o0.xyz = r1.xyz * r0.xxx;
+  // Original: o0.w = g.alpha_g * r1.w;
+  // Float targets no longer clamp the shader output before blending.
   o0.w = saturate(g.alpha_g * r1.w);
   return;
 }

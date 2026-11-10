@@ -48,14 +48,18 @@ void main(
   r0.y = cmp(r0.x < 0);
   r0.x = r0.y ? 0 : r0.x;
   r1.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, v1.xy).xyzw;
+  // Added: sampled alpha was implicitly limited by the original UNORM source.
   r1.w = saturate(r1.w);
   r2.xyzw = texture0_g_Texture.Sample(texture0_g_Sampler_s, v1.xy).xyzw;
+  // Added: retain the same sampled-alpha range for the other scene input.
   r2.w = saturate(r2.w);
   r1.xyzw = -r2.xyzw + r1.xyzw;
   r0.xyzw = r0.xxxx * r1.xyzw + r2.xyzw;
   r1.x = 1 + g.exposure_g;
   r1.x = g.brightness_g * r1.x;
   o0.xyz = r1.xxx * r0.xyz;
+  // Original: o0.w = g.alpha_g * r0.w;
+  // Restore alpha clamping before float-target blending; preserve RGB exposure.
   o0.w = saturate(g.alpha_g * r0.w);
   return;
 }

@@ -41,6 +41,8 @@ void main(
   r0.x = (int)r0.x;
   if (r0.x == 0) {
     r1.xyzw = t0.Sample(s4_s, v0.xy).xyzw;
+    // Added: original sampled alpha passed through directly from a UNORM texture.
+    // Clamp before vertex-alpha modulation; retain the original RGB sample above.
     r1.w = saturate(r1.w);
     r1.xyzw = v1.wxyz * r1.wxyz;
     r2.xyz = r1.yzw;
@@ -48,6 +50,8 @@ void main(
     r0.y = cmp((int)r0.x == 1);
     if (r0.y != 0) {
       r3.xyzw = t1.Sample(s5_s, v0.xy).xyzw;
+      // Added: original sampled alpha passed through directly from a UNORM texture.
+      // Clamp before vertex-alpha modulation; retain the original RGB sample above.
       r3.w = saturate(r3.w);
       r1.xyzw = v1.wxyz * r3.wxyz;
       r2.xyz = r1.yzw;
@@ -55,6 +59,8 @@ void main(
       r0.y = cmp((int)r0.x == 2);
       if (r0.y != 0) {
         r3.xyzw = t2.Sample(s6_s, v0.xy).xyzw;
+        // Added: original sampled alpha passed through directly from a UNORM texture.
+        // Clamp before vertex-alpha modulation; retain the original RGB sample above.
         r3.w = saturate(r3.w);
         r1.xyzw = v1.wxyz * r3.wxyz;
         r2.xyz = r1.yzw;
@@ -62,6 +68,8 @@ void main(
         r0.x = cmp((int)r0.x == 3);
         if (r0.x != 0) {
           r0.xyzw = t3.Sample(s7_s, v0.xy).xyzw;
+          // Added: original sampled alpha passed through directly from a UNORM texture.
+          // Clamp before vertex-alpha modulation; retain the original RGB sample above.
           r0.w = saturate(r0.w);
           r1.xyzw = v1.wxyz * r0.wxyz;
           r2.xyz = r1.yzw;
@@ -82,4 +90,3 @@ void main(
   o0.w = saturate(r1.x * cb10[7].z + cb10[7].y);
   return;
 }
-

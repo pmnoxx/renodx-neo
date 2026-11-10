@@ -43,6 +43,8 @@ void main(
   r1.xyzw = float4(-1,-1,-1,-1) + r1.xyzw;
   r1.xyzw = g.rate_g * r1.xyzw + float4(1,1,1,1);
   o0.xyz = r1.xyz * r0.xxx;
+  // Original: o0.w = g.alpha_g * r1.w;
+  // Preserve UNORM alpha semantics while allowing HDR RGB.
   o0.w = saturate(g.alpha_g * r1.w);
   return;
 }
