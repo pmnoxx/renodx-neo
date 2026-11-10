@@ -8,6 +8,62 @@ cmake --build build --config Debug --target total_eclipse
 
 Output: `build/Debug/renodx-total_eclipse.addon64`.
 
+## Additional compositor alpha compatibility
+
+All 99 extracted `adv/sys/compositor*.dx11.pso` asset names are covered by
+93 unique CRC-addressed replacements, each paired with its untouched
+`.hlsl.original`. Hash-identical aliases share a replacement and are listed
+beside the registration. Scene samples restore bounded alpha before effect
+math; output alpha is bounded without clipping RGB. Pattern samples and
+existing UV, transition-mask and timing clamps retain their original math.
+The radial-blur zoomout and tears10 shaders ignore sampled alpha and only
+bound output alpha; tears12 preserves its pattern input and bounds output
+alpha. Sprite shaders are outside this compositor set.
+
+Original-bytecode D3D11 WARP comparisons pass at five rates (0, 0.25, 0.5,
+0.75, 1): 465 SDR cases with a two-byte channel tolerance and 465 float-input
+stress cases comparing alpha 1 against alpha 2048, with unchanged HDR RGB.
+These use synthetic textures, disabled blending, fixed nonzero loop count and
+fixed other effect parameters; full game-scene, blend-state and timing coverage
+is still required. All 93 original-source baselines and replacements compile.
+
+Those comparisons exposed decompiler constant swizzle errors in horizontal,
+vertical and bottom stretch, sidewipe-from-right and zoomout. Their original
+DXBC reads transition rate and exposure separately; replacements restore that
+mapping instead of broadcasting rate into exposure. Raw `.original` files
+retain the decompiler text, including these artifacts. Invalid `int6` casts
+are repaired to scalar signed integer comparisons or float conversions as
+appropriate.
+
+The horizontal stretch transition `0xA5FA10A3`
+(`compositor_stretch_horizontal.dx11.pso`) also bounds sampled scene alpha
+before its blur/interpolation and bounds output alpha. Its RGB, UVs, filter
+weights and rate/exposure math remain unchanged. Live original and unmodified
+baseline reproduced severe color corruption; the alpha-only replacement
+removed it, reverting reproduced it, and restoring removed it again. The user
+confirmed that the resulting strong horizontal blur matches the intended
+transition. Permanent addon verification after restart remains pending.
+
+The look-down/left/right, horizontal/vertical convolution, and tears14/18/19
+replacements restore bounded sampled scene alpha before filtering, opacity
+modulation or alpha testing, and bound output alpha for the float color target.
+RGB, UVs, transition timing and discard expressions retain the original math.
+Tears14 is a direct RGBA copy and only needs output alpha bounded. Tears19
+retains its original alpha doubling and discard threshold before the output
+clamp. Depth and pattern inputs are not changed.
+
+All eight replacements and their unchanged decompiled baselines compile as
+`ps_4_0`. The look-left/right baselines repair the decompiler's invalid `int6`
+cast to the scalar signed-int-to-float conversion in the original DXBC.
+Compilation does not establish original/baseline runtime equivalence.
+
+Runtime verification is pending: compare original bytecode, unchanged baseline
+and replacement at matching intermediate transition frames and endpoints;
+check artwork, subtitles, menus and new save thumbnails. Confirm all eight
+CRC-addressed shader embeds are included by the `total_eclipse` build and active
+as Add-on replacements without live disk overrides after restart. Shader alpha
+clamps do not emulate UNORM quantization or destination clamping after blending.
+
 The addon explicitly discovers the real ReShade module. Display Commander's DXGI proxy also exports addon registration functions, but does not provide the full ReShade API.
 
 The game draws artwork and video into an output-sized intermediate, then copies it to the swapchain. With HDR10 enabled, both original resources use RGB10A2. The intermediate must also have an RGBA16F clone; otherwise the swapchain's floating-point proxy has no valid image. The upgrade rule matches RGB10A2 render targets of any size and preserves the game's gamma-space compositing. The proxy decodes sRGB and encodes the result for HDR10. It does not inverse-tonemap the final SDR frame.
@@ -38,4 +94,26 @@ The pattern wipe `0xA4BA7C88` (`compositor_pattern.dx11.pso`) also clamps sample
 
 When patching shaders, comment each changed block and retain the original expression in a comment where it is replaced. Mark inserted operations as added, explain the lost UNORM behavior being restored, and leave unrelated original math visible.
 
-The look-up transition 0x5E79C239 (compositor_look_up.dx11.pso) filters multiple scene samples. Clamp sampled alpha before that filter and output alpha before float-target blending, retaining RGB and UV math. The initial live comparison removed psychedelic corruption but left only the sky: the operator face disappeared. This is NOT a validated fix. Both input textures remain populated (face in texture0, sky in texture1); a diagnostic measured rate_g=1, alpha_g=1, brightness_g=1. A matching vanilla-state comparison is required to resolve scene selection. Permanent addon build/deployment is pending.
+Keep two files together in this mod folder for every patched game shader:
+`0xHASH.ps_4_0.hlsl` contains the patched replacement, and
+`0xHASH.ps_4_0.hlsl.original` preserves the unpatched decompiled source.
+Create the `.original` copy before editing, retain it unchanged through later
+patches, and do not register or compile it as a replacement. Preserve raw
+decompiler artifacts in `.original`; any repairs belong in the editable shader
+or a separate task-local compilation baseline. Embedded shaders follow the same
+convention using their recovered unpatched source.
+
+The look-up transition 0x5E79C239 (compositor_look_up.dx11.pso) filters multiple scene samples. Clamp sampled alpha before that filter and output alpha before float-target blending, retaining RGB and UV math. The initial live comparison removed psychedelic corruption but left only the sky, requiring a vanilla reference rather than inferring success from clean colors. A restart with the game addon disabled and save 19 loaded also settles on the sky, with no face; the actual game window and native tda_screen readback confirm blue sky. Thus the settled scene selection matches this reference. Both input textures remain populated (face in texture0, sky in texture1); a diagnostic measured rate_g=1, alpha_g=1, brightness_g=1. Full transition timing and permanent addon runtime verification remain pending. DC native SDR screenshots swap red and blue in this session; use resource readbacks/window capture for color comparisons.
+
+### CPU-uploaded video and save previews
+
+Keep CPU-updated scene textures on their original SDR resource. The game's
+`update_texture_region` and writable map paths update the original texture, not
+its RGBA16F clone. Sampling an empty clone hides video or save previews even
+when the original contains valid pixels. The game-local callbacks disable scene
+clone substitution on CPU writes, including existing resource views. GPU-rendered
+scene targets retain their float clones and compositor alpha fixes.
+
+Verified after deployment on 2026-11-10: startup movie renders, and the user
+confirmed both video playback and save thumbnails. Existing saves were not
+modified. New-save thumbnail capture remains a separate verification case.

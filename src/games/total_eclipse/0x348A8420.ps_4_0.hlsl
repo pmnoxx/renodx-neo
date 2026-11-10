@@ -1,0 +1,70 @@
+// Original assets: adv/sys/compositor_dizzy.dx11.pso; CRC32 0x348A8420.
+// ---- Created with 3Dmigoto v1.3.16 on Tue Nov 10 02:45:24 2026
+
+cbuffer _Unif_g_0 : register(b1)
+{
+
+  struct
+  {
+    float4 pos_g;
+    float rate_g;
+    float time_g;
+    float alpha_g;
+    float exposure_g;
+    float brightness_g;
+    float value_g;
+    int loop_g;
+    float power_g;
+  } g : packoffset(c0);
+
+}
+
+SamplerState texture0_g_Sampler_s : register(s0);
+SamplerState pattern_g_Sampler_s : register(s2);
+Texture2D<float4> texture0_g_Texture : register(t0);
+Texture2D<float4> pattern_g_Texture : register(t2);
+
+
+// 3Dmigoto declarations
+#define cmp -
+
+
+void main(
+  float4 v0 : SV_POSITION0,
+  float2 v1 : LOCATION0,
+  out float4 o0 : SV_TARGET0)
+{
+  float4 r0,r1;
+  uint4 bitmask, uiDest;
+  float4 fDest;
+
+  r0.x = 1 + -g.rate_g;
+  r1.xyzw = pattern_g_Texture.Sample(pattern_g_Sampler_s, v1.xy).xyzw;
+  r0.y = g.time_g * r1.w;
+  r0.y = 6.28318548 * r0.y;
+  r0.y = sin(r0.y);
+  r0.zw = float2(0.5,0.5) + -v1.xy;
+  r0.yz = r0.zw * r0.yy;
+  r0.xy = r0.yz * r0.xx;
+  r0.xy = -r0.xy * float2(0.300000012,0.300000012) + v1.xy;
+  r0.zw = cmp(r0.xy < float2(0,0));
+  r1.xy = cmp(float2(1,1) < r0.xy);
+  r0.z = (int)r0.z | (int)r1.x;
+  r0.z = (int)r0.w | (int)r0.z;
+  r0.z = (int)r1.y | (int)r0.z;
+  if (r0.z != 0) {
+    r1.xyzw = float4(0,0,0,1);
+  } else {
+    r1.xyzw = texture0_g_Texture.Sample(texture0_g_Sampler_s, r0.xy).xyzw;
+    // Added: restore bounded UNORM scene alpha before effect math; preserve sampled RGB.
+    r1.w = saturate(r1.w);
+  }
+  r0.x = 1 + g.exposure_g;
+  r0.x = g.brightness_g * r0.x;
+  o0.xyz = r1.xyz * r0.xxx;
+  o0.w = g.alpha_g * r1.w;
+  // Original output above: o0.w = g.alpha_g * r1.w;
+  // Added: bound float-target output alpha; retain original RGB, masks and discard expressions.
+  o0.w = saturate(o0.w);
+  return;
+}

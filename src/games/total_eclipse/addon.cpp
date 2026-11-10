@@ -31,6 +31,95 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x18F1647D),  // adv/sys/compositor_whitein.dx11.pso; compositor_retrospective_flashback.dx11.pso
     CustomShaderEntry(0xA4BA7C88),  // adv/sys/compositor_pattern.dx11.pso
     CustomShaderEntry(0x5E79C239),  // adv/sys/compositor_look_up.dx11.pso
+    CustomShaderEntry(0x71C2DC46),  // adv/sys/compositor_look_down.dx11.pso
+    CustomShaderEntry(0x7D673404),  // adv/sys/compositor_look_left.dx11.pso
+    CustomShaderEntry(0xAD92C242),  // adv/sys/compositor_look_right.dx11.pso
+    CustomShaderEntry(0x1FB156BF),  // adv/sys/compositor_convolution_horizontal.dx11.pso
+    CustomShaderEntry(0x9F18E30D),  // adv/sys/compositor_convolution_vertical.dx11.pso
+    CustomShaderEntry(0x73B46598),  // adv/sys/compositor_tears14.dx11.pso
+    CustomShaderEntry(0x99C7904B),  // adv/sys/compositor_tears18.dx11.pso
+    CustomShaderEntry(0x75567A68),  // adv/sys/compositor_tears19.dx11.pso
+    CustomShaderEntry(0xA5FA10A3),  // adv/sys/compositor_stretch_horizontal.dx11.pso
+    CustomShaderEntry(0x04AFA939),  // adv/sys/compositor_zoomout_no_blur.dx11.pso
+    CustomShaderEntry(0x07F13C43),  // adv/sys/compositor_tears15.dx11.pso
+    CustomShaderEntry(0x0E91610A),  // adv/sys/compositor_radial_blur_zoominout.dx11.pso
+    CustomShaderEntry(0x1029028D),  // adv/sys/compositor_invert_colorFade.dx11.pso
+    CustomShaderEntry(0x1389025F),  // adv/sys/compositor_stretchout_vertical.dx11.pso
+    CustomShaderEntry(0x161F92EF),  // adv/sys/compositor_dizzy_fade.dx11.pso
+    CustomShaderEntry(0x19150AD5),  // adv/sys/compositor_h_raster.dx11.pso
+    CustomShaderEntry(0x1A36008E),  // adv/sys/compositor_radial_blur_zoomin_swirl.dx11.pso
+    CustomShaderEntry(0x1E04407C),  // adv/sys/compositor_sidewipe_stretchout_horizontal.dx11.pso
+    CustomShaderEntry(0x24D4BE6B),  // adv/sys/compositor_contrast.dx11.pso
+    CustomShaderEntry(0x2520FAD7),  // adv/sys/compositor_mosaicinout.dx11.pso
+    CustomShaderEntry(0x25526F4A),  // adv/sys/compositor_shake_rotate.dx11.pso
+    CustomShaderEntry(0x276424E0),  // adv/sys/compositor_stretch_vertical_FadeOut.dx11.pso
+    CustomShaderEntry(0x27DC036C),  // adv/sys/compositor_curtain_from_bottom.dx11.pso
+    CustomShaderEntry(0x29BE542C),  // adv/sys/compositor_swirl_left.dx11.pso; adv/sys/compositor_swirl_right.dx11.pso
+    CustomShaderEntry(0x2B3D2CF0),  // adv/sys/compositor_shake_shift.dx11.pso
+    CustomShaderEntry(0x2C4EA2A1),  // adv/sys/compositor_tears12.dx11.pso
+    CustomShaderEntry(0x329DE360),  // adv/sys/compositor_zoominout_no_blur_and_invert.dx11.pso
+    CustomShaderEntry(0x348A8420),  // adv/sys/compositor_dizzy.dx11.pso
+    CustomShaderEntry(0x35D8646E),  // adv/sys/compositor_radial_blur_zoomout.dx11.pso
+    CustomShaderEntry(0x35E850D4),  // adv/sys/compositor_dizzy_blur.dx11.pso
+    CustomShaderEntry(0x383C56B6),  // adv/sys/compositor_tears6.dx11.pso
+    CustomShaderEntry(0x3874E438),  // adv/sys/compositor_tears16.dx11.pso
+    CustomShaderEntry(0x4277601B),  // adv/sys/compositor_swirl_right_revers.dx11.pso
+    CustomShaderEntry(0x46E67DEA),  // adv/sys/compositor_radial_blur_zoomin_curtain.dx11.pso
+    CustomShaderEntry(0x52B00108),  // adv/sys/compositor_look_up_radial_blur_zoomin_first.dx11.pso
+    CustomShaderEntry(0x5348A8A6),  // adv/sys/compositor_radial_blur_zoomin_reentry.dx11.pso
+    CustomShaderEntry(0x561BC426),  // adv/sys/compositor_radial_blur_zoomin_first.dx11.pso
+    CustomShaderEntry(0x588E6AAC),  // adv/sys/compositor_tears10.dx11.pso
+    CustomShaderEntry(0x5A5D4D49),  // adv/sys/compositor_radial_blur_zoomin_end.dx11.pso
+    CustomShaderEntry(0x5D55845F),  // adv/sys/compositor_zoomout.dx11.pso
+    CustomShaderEntry(0x60CC7F67),  // adv/sys/compositor_tears5.dx11.pso
+    CustomShaderEntry(0x61E19493),  // adv/sys/compositor_radial_blur_zoomin.dx11.pso
+    CustomShaderEntry(0x6687142B),  // adv/sys/compositor_stretchout_horizontal_end.dx11.pso
+    CustomShaderEntry(0x66BA614E),  // adv/sys/compositor_mosaicout.dx11.pso
+    CustomShaderEntry(0x675085E0),  // adv/sys/compositor_mosaicin.dx11.pso
+    CustomShaderEntry(0x67F1FCAC),  // adv/sys/compositor_tears2.dx11.pso
+    CustomShaderEntry(0x7161B923),  // adv/sys/compositor_invert_color.dx11.pso
+    CustomShaderEntry(0x71A54AE8),  // adv/sys/compositor_radial_blur_zoomin_susanoh.dx11.pso
+    CustomShaderEntry(0x72FC4F87),  // adv/sys/compositor_swirl_left_retrospective.dx11.pso; adv/sys/compositor_swirl_right_retrospective.dx11.pso
+    CustomShaderEntry(0x79FAA200),  // adv/sys/compositor_stretchout_horizontal.dx11.pso
+    CustomShaderEntry(0x8C46DCFF),  // adv/sys/compositor_curtain_from_right.dx11.pso
+    CustomShaderEntry(0x918F75F6),  // adv/sys/compositor_contrast_stretchout.dx11.pso
+    CustomShaderEntry(0x91929AE5),  // adv/sys/compositor_radial_blur_zoomin_yokohama.dx11.pso
+    CustomShaderEntry(0x9257B8C7),  // adv/sys/compositor_radial_blur_zoomin_first_end.dx11.pso
+    CustomShaderEntry(0x95565630),  // adv/sys/compositor_curtain_from_top.dx11.pso
+    CustomShaderEntry(0x9AC31DB1),  // adv/sys/compositor_sidewipe_blur_zoomin.dx11.pso
+    CustomShaderEntry(0x9D0D3AFE),  // adv/sys/compositor_look_up_stretchout_horizontal.dx11.pso
+    CustomShaderEntry(0x9E1FC3EE),  // adv/sys/compositor_stretch_vertical.dx11.pso
+    CustomShaderEntry(0x9FF90EE8),  // adv/sys/compositor_ripple.dx11.pso
+    CustomShaderEntry(0xA1501C1B),  // adv/sys/compositor_shake_shift_and_stretchout.dx11.pso
+    CustomShaderEntry(0xA2AACCC0),  // adv/sys/compositor_tears17.dx11.pso; adv/sys/compositor_tears4.dx11.pso
+    CustomShaderEntry(0xA2F65173),  // adv/sys/compositor_fadeout.dx11.pso
+    CustomShaderEntry(0xA4753468),  // adv/sys/compositor_invert_end.dx11.pso
+    CustomShaderEntry(0xA5A2BF96),  // adv/sys/compositor_battered.dx11.pso
+    CustomShaderEntry(0xA6EAF5F0),  // adv/sys/compositor_wave_horizontal.dx11.pso
+    CustomShaderEntry(0xAA991EFE),  // adv/sys/compositor_fade.dx11.pso
+    CustomShaderEntry(0xB155454D),  // adv/sys/compositor_tears1.dx11.pso
+    CustomShaderEntry(0xB2ABF833),  // adv/sys/compositor_look_up_radial_blur_zoomin_first2.dx11.pso
+    CustomShaderEntry(0xB6F4B7F0),  // adv/sys/compositor_stretch_bottom.dx11.pso
+    CustomShaderEntry(0xC36673BF),  // adv/sys/compositor_tears3.dx11.pso
+    CustomShaderEntry(0xC3721F7D),  // adv/sys/compositor_stretch_horizontal_and_sidewipe.dx11.pso
+    CustomShaderEntry(0xC3AD5E55),  // adv/sys/compositor_dizzy_stretchout_horizontal.dx11.pso
+    CustomShaderEntry(0xC7A42D87),  // adv/sys/compositor_invert_shake_rotate.dx11.pso
+    CustomShaderEntry(0xC98A879E),  // adv/sys/compositor_tears8.dx11.pso
+    CustomShaderEntry(0xCCD5860B),  // adv/sys/compositor_radial_blur_swirl_right_contrast.dx11.pso
+    CustomShaderEntry(0xD7A870F1),  // adv/sys/compositor_stretchout_horizontal2.dx11.pso
+    CustomShaderEntry(0xE0AFEA57),  // adv/sys/compositor_curtain_from_left.dx11.pso
+    CustomShaderEntry(0xE32DEE89),  // adv/sys/compositor_swirl_left_invert.dx11.pso; adv/sys/compositor_swirl_right_invert.dx11.pso
+    CustomShaderEntry(0xE6E7B55C),  // adv/sys/compositor_flash.dx11.pso
+    CustomShaderEntry(0xE80E0A36),  // adv/sys/compositor_sidewipe_from_right.dx11.pso
+    CustomShaderEntry(0xE9455CB7),  // adv/sys/compositor_tears11.dx11.pso
+    CustomShaderEntry(0xECFC1A66),  // adv/sys/compositor_mosaicin_black.dx11.pso
+    CustomShaderEntry(0xED7256D4),  // adv/sys/compositor_zoominout_no_blur.dx11.pso
+    CustomShaderEntry(0xEE086F61),  // adv/sys/compositor_tears7.dx11.pso
+    CustomShaderEntry(0xF05F86D4),  // adv/sys/compositor_tears9.dx11.pso
+    CustomShaderEntry(0xF187CA72),  // adv/sys/compositor_zoomin.dx11.pso
+    CustomShaderEntry(0xF1EDCFC2),  // adv/sys/compositor_radial_blur_zoomin_first_end2.dx11.pso
+    CustomShaderEntry(0xFBB63119),  // adv/sys/compositor_swirl_right_contrast.dx11.pso
+    CustomShaderEntry(0xFC167D88),  // adv/sys/compositor_tears13.dx11.pso
 };
 
 ShaderInjectData shader_injection;
@@ -460,9 +549,32 @@ bool OnCopyTextureRegion(reshade::api::command_list* cmd_list, reshade::api::res
   return true;
 }
 
+void KeepCpuUploadedTextureOriginal(reshade::api::device* device, const reshade::api::resource& resource) {
+  std::vector<uint64_t> views;
+  renodx::utils::resource::UpdateResourceInfo(resource, [&](renodx::utils::resource::ResourceInfo* info) {
+    if (info->device != device || info->destroyed || info->is_clone || !info->clone_enabled) return;
+    if (info->clone_target == nullptr || info->clone_target->name != "Total Eclipse scene") return;
+    // CPU uploads update the SDR original, never its float clone (notably tda_thumb).
+    info->clone_enabled = false;
+    info->clone_can_deactivate = false;
+    views.assign(info->resource_view_handles.begin(), info->resource_view_handles.end());
+  });
+  renodx::utils::resource::upgrade::UpdateResourceViewsCloneState(views, false, false);
+}
+
+bool OnUpdateTextureRegion(reshade::api::device* device, const reshade::api::subresource_data& data,
+                           reshade::api::resource destination, uint32_t subresource,
+                           const reshade::api::subresource_box* box) {
+  KeepCpuUploadedTextureOriginal(device, destination);
+  return false;
+}
+
 void OnMapTextureRegion(reshade::api::device* device, reshade::api::resource resource, uint32_t subresource,
                         const reshade::api::subresource_box* box, reshade::api::map_access access,
                         reshade::api::subresource_data* data) {
+  if (access != reshade::api::map_access::read_only) {
+    KeepCpuUploadedTextureOriginal(device, resource);
+  }
   if (access != reshade::api::map_access::read_only && access != reshade::api::map_access::read_write) return;
   const auto desc = device->get_resource_desc(resource);
   char message[256];
@@ -719,10 +831,12 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
     reshade::register_event<reshade::addon_event::copy_resource>(OnCopyResource);
     reshade::register_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
     reshade::register_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
+    reshade::register_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
   } else if (fdw_reason == DLL_PROCESS_DETACH) {
     reshade::unregister_event<reshade::addon_event::copy_resource>(OnCopyResource);
     reshade::unregister_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
     reshade::unregister_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
+    reshade::unregister_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
   }
   renodx::mods::swapchain::Use(fdw_reason, &shader_injection);
   renodx::mods::shader::Use(fdw_reason, custom_shaders, &shader_injection);

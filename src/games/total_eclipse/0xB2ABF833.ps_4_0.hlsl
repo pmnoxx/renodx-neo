@@ -1,0 +1,85 @@
+// Original assets: adv/sys/compositor_look_up_radial_blur_zoomin_first2.dx11.pso; CRC32 0xB2ABF833.
+// ---- Created with 3Dmigoto v1.3.16 on Tue Nov 10 02:45:25 2026
+
+cbuffer _Unif_g_0 : register(b1)
+{
+
+  struct
+  {
+    float4 pos_g;
+    float rate_g;
+    float time_g;
+    float alpha_g;
+    float exposure_g;
+    float brightness_g;
+    float value_g;
+    int loop_g;
+    float power_g;
+  } g : packoffset(c0);
+
+}
+
+SamplerState texture1_g_Sampler_s : register(s1);
+Texture2D<float4> texture1_g_Texture : register(t1);
+
+
+// 3Dmigoto declarations
+#define cmp -
+
+
+void main(
+  float4 v0 : SV_POSITION0,
+  float2 v1 : LOCATION0,
+  out float4 o0 : SV_TARGET0)
+{
+  float4 r0,r1,r2,r3,r4,r5,r6;
+  uint4 bitmask, uiDest;
+  float4 fDest;
+
+  r0.xyzw = float4(0.5,0.5,0.5,0.5) + -v1.xyxy;
+  r1.x = dot(r0.zw, r0.zw);
+  r1.y = sqrt(r1.x);
+  r1.x = rsqrt(r1.x);
+  r2.xyzw = r1.xxxx * r0.zwzw;
+  r3.xyzw = float4(0,0,0,0);
+  r1.x = 0;
+  while (true) {
+    r1.z = (int)r1.x;
+    r1.w = cmp(r1.z >= 8);
+    if (r1.w != 0) break;
+    r1.x = (int)r1.x + 1;
+    r1.w = (int)r1.x;
+    r1.w = r1.w * r1.y;
+    r1.w = g.power_g * r1.w;
+    r1.w = 0.001953125 * r1.w;
+    r4.xyzw = r2.xyzw * r1.wwww;
+    r1.z = 0.125 * r1.z;
+    r5.xyzw = r1.zzzz * r0.xyzw;
+    r5.xyzw = g.power_g * r5.xyzw;
+    r5.xyzw = r5.xyzw * float4(0.119999997,0.119999997,0.119999997,0.119999997) + v1.xyxy;
+    r6.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, r5.zw).xyzw;
+    // Added: restore bounded UNORM scene alpha before effect math; preserve sampled RGB.
+    r6.w = saturate(r6.w);
+    r4.xyzw = r4.xyzw * float4(3,3,6,6) + r5.xyzw;
+    r5.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, r4.xy).xyzw;
+    // Added: restore bounded UNORM scene alpha before effect math; preserve sampled RGB.
+    r5.w = saturate(r5.w);
+    r5.xyzw = float4(0.200000003,0.200000003,0.200000003,0.200000003) * r5.xyzw;
+    r4.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, r4.zw).xyzw;
+    // Added: restore bounded UNORM scene alpha before effect math; preserve sampled RGB.
+    r4.w = saturate(r4.w);
+    r5.xyzw = r6.xyzw * float4(0.699999988,0.699999988,0.699999988,0.699999988) + r5.xyzw;
+    r4.xyzw = r4.xyzw * float4(0.100000001,0.100000001,0.100000001,0.100000001) + r5.xyzw;
+    r3.xyzw = r4.xyzw + r3.xyzw;
+  }
+  r0.xyz = float3(0.125,0.125,0.125) * r3.xyz;
+  r0.w = g.alpha_g * r3.w;
+  r1.x = 1 + g.exposure_g;
+  r1.x = g.brightness_g * r1.x;
+  o0.xyz = r1.xxx * r0.xyz;
+  o0.w = 0.125 * r0.w;
+  // Original output above: o0.w = 0.125 * r0.w;
+  // Added: bound float-target output alpha; retain original RGB, masks and discard expressions.
+  o0.w = saturate(o0.w);
+  return;
+}

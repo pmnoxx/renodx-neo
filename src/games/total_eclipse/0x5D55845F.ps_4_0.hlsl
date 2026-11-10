@@ -1,0 +1,66 @@
+// Original assets: adv/sys/compositor_zoomout.dx11.pso; CRC32 0x5D55845F.
+// ---- Created with 3Dmigoto v1.3.16 on Tue Nov 10 02:45:25 2026
+
+cbuffer _Unif_g_0 : register(b1)
+{
+
+  struct
+  {
+    float4 pos_g;
+    float rate_g;
+    float time_g;
+    float alpha_g;
+    float exposure_g;
+    float brightness_g;
+    float value_g;
+    int loop_g;
+    float power_g;
+  } g : packoffset(c0);
+
+}
+
+SamplerState texture1_g_Sampler_s : register(s1);
+Texture2D<float4> texture1_g_Texture : register(t1);
+
+
+// 3Dmigoto declarations
+#define cmp -
+
+
+void main(
+  float4 v0 : SV_POSITION0,
+  float2 v1 : LOCATION0,
+  out float4 o0 : SV_TARGET0)
+{
+  float4 r0,r1,r2;
+  uint4 bitmask, uiDest;
+  float4 fDest;
+
+  r0.xy = float2(-0.5,-0.5) + v1.xy;
+  // Original decompiler: r0.zw = float2(-1,1) + g.rate_g;
+  // Repair original DXBC cb1[1].xxxw: zw read rate/exposure.
+  r0.zw = float2(-1,1) + float2(g.rate_g, g.exposure_g);
+  r0.z = 0.5 * r0.z;
+  r0.xy = r0.xy * r0.zz;
+  r1.xyzw = float4(0,0,0,0);
+  r0.z = 0;
+  while (true) {
+    r2.x = cmp((int)r0.z >= 64);
+    if (r2.x != 0) break;
+    r2.x = (int)r0.z;
+    r2.xy = r2.xx * r0.xy;
+    r2.xy = r2.xy * float2(0.015625,0.015625) + v1.xy;
+    r2.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, r2.xy).xyzw;
+    // Added: restore bounded UNORM scene alpha before effect math; preserve sampled RGB.
+    r2.w = saturate(r2.w);
+    r1.xyzw = r2.xyzw * float4(0.015625,0.015625,0.015625,0.015625) + r1.xyzw;
+    r0.z = (int)r0.z + 1;
+  }
+  r0.x = g.brightness_g * r0.w;
+  o0.xyz = r1.xyz * r0.xxx;
+  o0.w = g.alpha_g * r1.w;
+  // Original output above: o0.w = g.alpha_g * r1.w;
+  // Added: bound float-target output alpha; retain original RGB, masks and discard expressions.
+  o0.w = saturate(o0.w);
+  return;
+}
