@@ -25,6 +25,7 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
+    CustomShaderEntry(0x1880F22A),
     CustomShaderEntry(0x5C733846),
     CustomShaderEntry(0x18F1647D),
 };
@@ -506,6 +507,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         renodx::mods::swapchain::resource_upgrade_infos.push_back({
             .old_format = reshade::api::format::r10g10b10a2_unorm,
             .new_format = reshade::api::format::r16g16b16a16_float,
+            .ignore_size = true,
             .use_resource_view_cloning = true,
             .usage_include = reshade::api::resource_usage::render_target,
             .name = "Total Eclipse composite",
@@ -513,6 +515,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         renodx::mods::swapchain::resource_upgrade_infos.push_back({
             .old_format = reshade::api::format::r8g8b8a8_unorm,
             .new_format = reshade::api::format::r16g16b16a16_float,
+            .ignore_size = true,
             .use_resource_view_cloning = true,
             .usage_include = reshade::api::resource_usage::render_target,
             .name = "Total Eclipse scene",
