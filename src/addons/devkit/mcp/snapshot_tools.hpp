@@ -26,6 +26,7 @@
 #include "draw_summary.hpp"
 #include "shader_summary.hpp"
 #include "snapshot_summary.hpp"
+#include "shader_hash.hpp"
 
 namespace renodx::addons::devkit::mcp::snapshot_tools {
 
@@ -51,7 +52,9 @@ struct ToolContext {
   std::function<std::vector<draw_summary::DrawSummary>(std::uint32_t device_index)> list_draws;
   std::function<draw_summary::DrawSummary(std::uint32_t device_index, std::uint32_t draw_index)> get_draw;
   std::function<snapshot_summary::SnapshotSummary(std::uint32_t device_index)> build_snapshot_summary;
-  std::function<ToolResult(std::uint32_t device_index)> queue_snapshot;
+  std::function<ToolResult(std::uint32_t device_index, std::uint32_t frame_count, std::uint32_t max_records,
+                           const std::optional<std::vector<std::uint32_t>>& known_hashes)> queue_snapshot;
+  std::function<ToolResult(std::uint32_t device_index)> dump_unknown_captures;
 };
 
 namespace internal {
@@ -446,7 +449,20 @@ inline ToolResult HandleQueueSnapshotTool(const json& arguments, const ToolConte
     throw std::runtime_error("The snapshot tool context is not configured.");
   }
 
-  return context.queue_snapshot(internal::ResolveDeviceIndex(arguments, context));
+  std::optional<std::vector<std::uint32_t>> known_hashes;
+  if (arguments.contains("knownShaderHashes")) {
+    known_hashes.emplace();
+    const auto hashes = arguments.at("knownShaderHashes").get<std::vector<std::string>>();
+    if (hashes.size() > 8192u) throw std::runtime_error("knownShaderHashes is limited to 8192 hashes.");
+    for (const auto& hash : hashes) {
+      known_hashes->push_back(shader_hash::GetRequired(json{{"hash", hash}}, "hash"));
+    }
+  }
+  return context.queue_snapshot(
+      internal::ResolveDeviceIndex(arguments, context),
+      mcp_arguments::ValidateRange("frameCount", mcp_arguments::GetOptional<std::uint32_t>(arguments, "frameCount").value_or(1u), 1u, 3600u),
+      mcp_arguments::ValidateRange("maxRecords", mcp_arguments::GetOptional<std::uint32_t>(arguments, "maxRecords").value_or(20000u), 1u, 100000u),
+      known_hashes);
 }
 
 }  // namespace renodx::addons::devkit::mcp::snapshot_tools

@@ -154,6 +154,7 @@ struct DrawSummary {
   std::size_t index = 0u;
   std::string method;
   std::int64_t timestamp_ms = 0;
+  std::uint32_t frame_index = 0u;
   std::size_t srv_count = 0u;
   std::size_t uav_count = 0u;
   std::size_t constant_count = 0u;
@@ -178,6 +179,7 @@ inline void to_json(json& j, const DrawSummary& value) {
       {"index", value.index},
       {"method", value.method},
       {"timestampMs", value.timestamp_ms},
+      {"frameIndex", value.frame_index},
       {"srvCount", value.srv_count},
       {"uavCount", value.uav_count},
       {"constantCount", value.constant_count},

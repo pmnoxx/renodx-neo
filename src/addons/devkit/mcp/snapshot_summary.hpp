@@ -24,6 +24,11 @@ struct SnapshotSummary {
   std::size_t shader_usage_entries = 0u;
   std::size_t snapshot_rows = 0u;
   bool snapshot_rows_valid = false;
+  std::uint32_t requested_frames = 1u;
+  std::uint32_t captured_frames = 0u;
+  bool record_limit_reached = false;
+  std::size_t unknown_screenshots = 0u;
+  bool unknown_screenshot_pending = false;
 };
 
 // NOLINTNEXTLINE(readability-identifier-naming)
@@ -38,6 +43,11 @@ inline void to_json(json& j, const SnapshotSummary& value) {
       {"shaderUsageEntries", value.shader_usage_entries},
       {"snapshotRows", value.snapshot_rows},
       {"snapshotRowsValid", value.snapshot_rows_valid},
+      {"requestedFrames", value.requested_frames},
+      {"capturedFrames", value.captured_frames},
+      {"recordLimitReached", value.record_limit_reached},
+      {"unknownScreenshots", value.unknown_screenshots},
+      {"unknownScreenshotPending", value.unknown_screenshot_pending},
   };
 }
 

@@ -23,6 +23,7 @@
 #include <deque>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <format>
 #include <initializer_list>
 #include <memory>
@@ -238,6 +239,7 @@ struct DrawDetails {
   uint64_t cmd_list_handle = 0u;
   uint32_t cmd_list_draw_index = 0u;
   uint32_t submission_order = 0u;
+  uint32_t frame_index = 0u;
   std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> srv_binds;
   std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> uav_binds;
   std::map<std::pair<uint32_t, uint32_t>, reshade::api::buffer_range> constants;
@@ -392,6 +394,17 @@ ResourceViewDetails GetResourceViewDetails(reshade::api::resource_view resource_
   return details;
 }
 
+struct UnknownShaderCapture {
+  uint32_t frame_index = 0u;
+  std::vector<uint32_t> shader_hashes;
+  uint32_t width = 0u;
+  uint32_t height = 0u;
+  reshade::api::format format = reshade::api::format::unknown;
+  reshade::api::color_space color_space = reshade::api::color_space::unknown;
+  std::vector<uint8_t> pixels;
+  std::string error;
+};
+
 struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
   reshade::api::device* device;
   std::unordered_map<uint32_t, ShaderDetails> shader_details;
@@ -421,6 +434,17 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
   bool primary_swapchain_is_flip = false;
   bool is_d3d9_ex = false;
   bool has_synced_addon_shaders = false;
+  uint32_t capture_frame_count = 1u;
+  uint32_t capture_frame_index = 0u;
+  uint32_t capture_max_records = 20000u;
+  bool capture_limit_reached = false;
+  size_t creation_bytecode_bytes = 0u;
+  bool capture_unknown_shaders = false;
+  std::set<uint32_t> capture_known_hashes;
+  std::vector<UnknownShaderCapture> unknown_captures;
+  std::optional<UnknownShaderCapture> pending_unknown_capture;
+  size_t unknown_capture_bytes = 0u;
+  bool unknown_readback_active = false;
 
   ShaderDetails* GetShaderDetails(uint32_t shader_hash) {
     // assert(shader_hash != 0u);
@@ -2589,6 +2613,7 @@ std::vector<DeviceData*> device_data_list;
       .index = draw_index,
       .method = draw_details.DrawMethodString(),
       .timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(draw_details.timestamp.time_since_epoch()).count(),
+      .frame_index = draw_details.frame_index,
       .srv_count = draw_details.srv_binds.size(),
       .uav_count = draw_details.uav_binds.size(),
       .constant_count = draw_details.constants.size(),
@@ -4084,8 +4109,14 @@ void ProcessPendingLiveShaderRequests(
             .shader_usage_entries = device_data->shader_draw_indexes.size(),
             .snapshot_rows = device_data->snapshot_rows.size(),
             .snapshot_rows_valid = device_data->snapshot_rows_valid,
+            .requested_frames = device_data->capture_frame_count,
+            .captured_frames = device_data->capture_frame_index,
+            .record_limit_reached = device_data->capture_limit_reached,
+            .unknown_screenshots = device_data->unknown_captures.size(),
+            .unknown_screenshot_pending = device_data->pending_unknown_capture.has_value() || device_data->unknown_readback_active,
         }; },
-      .queue_snapshot = [](uint32_t device_index) {
+      .queue_snapshot = [](uint32_t device_index, uint32_t frame_count, uint32_t max_records,
+                           const std::optional<std::vector<uint32_t>>& known_hashes) {
         std::shared_lock list_lock(device_data_list_mutex);
         if (device_index >= device_data_list.size()) {
           const auto error = std::format("Device #{} is not available.", device_index);
@@ -4140,6 +4171,24 @@ void ProcessPendingLiveShaderRequests(
           };
         }
 
+        {
+          std::unique_lock lock(device_data->mutex);
+          if (device_data->pending_unknown_capture.has_value() || device_data->unknown_readback_active) {
+            throw std::runtime_error("Wait for the pending unknown-shader screenshot readback.");
+          }
+          device_data->capture_frame_count = frame_count;
+          device_data->capture_frame_index = 0u;
+          device_data->capture_max_records = max_records;
+          device_data->capture_limit_reached = false;
+          device_data->capture_unknown_shaders = known_hashes.has_value();
+          device_data->capture_known_hashes.clear();
+          if (known_hashes.has_value()) {
+            device_data->capture_known_hashes.insert(known_hashes->begin(), known_hashes->end());
+          }
+          device_data->unknown_captures.clear();
+          device_data->pending_unknown_capture.reset();
+          device_data->unknown_capture_bytes = 0u;
+        }
         QueueSnapshotCapture(device);
         return ToolResult{
             .text = snapshot_trace_with_snapshot.load()
@@ -4150,8 +4199,74 @@ void ProcessPendingLiveShaderRequests(
                 {"queued", true},
                 {"active", false},
                 {"traceQueued", snapshot_trace_with_snapshot.load()},
+                {"frameCount", frame_count},
+                {"maxRecords", max_records},
+                {"captureUnknownShaders", known_hashes.has_value()},
             },
         }; },
+      .dump_unknown_captures = [](uint32_t device_index) {
+        std::shared_lock list_lock(device_data_list_mutex);
+        if (device_index >= device_data_list.size()) throw std::runtime_error("Device is not available.");
+        auto* data = device_data_list[device_index];
+        std::vector<UnknownShaderCapture> captures;
+        std::map<uint32_t, std::vector<uint8_t>> shaders;
+        json manifest;
+        {
+          std::shared_lock lock(data->mutex);
+          if (snapshot_device == data->device || snapshot_queued_device == data->device
+              || data->pending_unknown_capture.has_value() || data->unknown_readback_active) {
+            throw std::runtime_error("Wait for recording and screenshot readback to complete.");
+          }
+          captures = data->unknown_captures;
+          std::set<uint32_t> captured_frames;
+          for (const auto& capture : captures) captured_frames.insert(capture.frame_index);
+          manifest = {{"deviceIndex", device_index}, {"totalRecordedDraws", data->draw_details_list.size()},
+                      {"screenshots", json::array()}, {"draws", json::array()}};
+          for (size_t index = 0u; index < data->draw_details_list.size(); ++index) {
+            if (!captured_frames.contains(data->draw_details_list[index].frame_index)) continue;
+            manifest["draws"].push_back(BuildDrawSummary(index, data->draw_details_list[index], true));
+          }
+          for (const auto& capture : captures) {
+            for (auto hash : capture.shader_hashes) {
+              if (auto iterator = data->shader_details.find(hash); iterator != data->shader_details.end()) {
+                shaders[hash] = iterator->second.shader_data;
+              }
+            }
+          }
+        }
+        list_lock.unlock();
+        const auto directory = renodx::utils::path::GetDumpOutputPath()
+                               / std::format("unknown-{}-{}", GetCurrentProcessId(), GetTickCount64());
+        std::filesystem::create_directories(directory);
+        for (const auto& capture : captures) {
+          const auto filename = std::format("frame-{:06}.bin", capture.frame_index);
+          if (!capture.pixels.empty()) {
+            std::ofstream file(directory / filename, std::ios::binary);
+            file.write(reinterpret_cast<const char*>(capture.pixels.data()), capture.pixels.size());
+            if (!file) throw std::runtime_error("Screenshot write failed.");
+          }
+          std::vector<std::string> hashes;
+          for (auto hash : capture.shader_hashes) hashes.push_back(FormatShaderHash(hash));
+          manifest["screenshots"].push_back({
+              {"frameIndex", capture.frame_index}, {"shaderHashes", hashes},
+              {"width", capture.width}, {"height", capture.height},
+              {"format", StreamToString(capture.format)}, {"colorSpace", static_cast<uint32_t>(capture.color_space)},
+              {"path", capture.pixels.empty() ? json(nullptr) : json(filename)},
+              {"bytes", capture.pixels.size()}, {"error", capture.error},
+              {"note", "Frozen frame after ReShade effects/overlay. 8-bit formats are RGBA8; HDR10/FP16 pixels remain native, without tone mapping."}});
+        }
+        for (const auto& [hash, bytecode] : shaders) {
+          if (bytecode.empty()) continue;
+          std::ofstream file(directory / (FormatShaderHash(hash) + ".cso"), std::ios::binary);
+          file.write(reinterpret_cast<const char*>(bytecode.data()), bytecode.size());
+          if (!file) throw std::runtime_error("Shader write failed.");
+        }
+        std::ofstream file(directory / "manifest.json");
+        file << manifest.dump(2);
+        if (!file) throw std::runtime_error("Manifest write failed.");
+        return ToolResult{.text = directory.string(),
+                          .structured_content = {{"directory", directory.string()}, {"screenshotCount", captures.size()}}};
+      },
   };
 }
 
@@ -4510,12 +4625,34 @@ void OnInitPipeline(
     const reshade::api::pipeline_subobject* subobjects,
     reshade::api::pipeline pipeline) {
   if (pipeline.handle == 0u) return;
-  if (layout.handle == 0u) return;
 
   auto* data = renodx::utils::data::Get<DeviceData>(device);
   if (data == nullptr) return;
+  std::vector<renodx::utils::pipeline::PipelineShaderHashEntry> identities;
+  renodx::utils::pipeline::GetPipelineInfo(pipeline, [&](const auto& info) {
+    identities.assign(info.shader_details.begin(), info.shader_details.end());
+  });
   const std::unique_lock lock(data->mutex);
   data->live_pipelines.emplace(pipeline.handle);
+  // Cache original bytecode while the pipeline is alive, including shaders not yet drawn.
+  for (const auto& identity : identities) {
+    if (identity.shader_hash == 0u || data->shader_details.size() >= 8192u) continue;
+    auto* details = data->GetShaderDetails(identity.shader_hash);
+    if (!details->shader_data.empty()) continue;
+    auto bytecode = renodx::utils::shader::GetShaderData(pipeline, identity.shader_hash);
+    if (!bytecode.has_value() || bytecode->size() > 1024u * 1024u
+        || data->creation_bytecode_bytes + bytecode->size() > 64u * 1024u * 1024u) continue;
+    data->creation_bytecode_bytes += bytecode->size();
+    details->shader_data = std::move(bytecode.value());
+    details->shader_type = identity.stage;
+    if (renodx::utils::device::IsDirectX(device)) {
+      try {
+        details->program_version = renodx::utils::shader::compiler::directx::DecodeShaderVersion(details->shader_data);
+      } catch (const std::exception& error) {
+        reshade::log::message(reshade::log::level::warning, error.what());
+      }
+    }
+  }
 
   for (const auto& subobject : std::span<const reshade::api::pipeline_subobject>(subobjects, subobject_count)) {
     if (subobject.type == reshade::api::pipeline_subobject_type::blend_state) {
@@ -4649,11 +4786,16 @@ bool OnCopyResource(
     auto* device_data = renodx::utils::data::Get<DeviceData>(device);
     if (device_data == nullptr) return false;
     std::unique_lock lock(device_data->mutex);
+    if (device_data->capture_limit_reached) return false;
     if (snapshot_trace_with_snapshot) {
       reshade::log::message(reshade::log::level::debug, std::format("Snapshot #{}", device_data->draw_details_list.size()).c_str());
     }
     const auto draw_index = device_data->draw_details_list.size();
+    draw_details.frame_index = device_data->capture_frame_index;
     device_data->draw_details_list.push_back(std::move(draw_details));
+    if (device_data->draw_details_list.size() >= device_data->capture_max_records) {
+      device_data->capture_limit_reached = true;
+    }
     if (SupportsSnapshotSubmissionOrder(device->get_api()) && device_data->draw_details_list.back().cmd_list_handle != 0u) {
       device_data->draw_detail_indexes_by_cmd_list[device_data->draw_details_list.back().cmd_list_handle].push_back(draw_index);
     }
@@ -4695,11 +4837,16 @@ bool OnCopyTextureRegion(
     auto* device_data = renodx::utils::data::Get<DeviceData>(device);
     if (device_data == nullptr) return false;
     std::unique_lock lock(device_data->mutex);
+    if (device_data->capture_limit_reached) return false;
     if (snapshot_trace_with_snapshot) {
       reshade::log::message(reshade::log::level::debug, std::format("Snapshot #{}", device_data->draw_details_list.size()).c_str());
     }
     const auto draw_index = device_data->draw_details_list.size();
+    draw_details.frame_index = device_data->capture_frame_index;
     device_data->draw_details_list.push_back(std::move(draw_details));
+    if (device_data->draw_details_list.size() >= device_data->capture_max_records) {
+      device_data->capture_limit_reached = true;
+    }
     if (SupportsSnapshotSubmissionOrder(device->get_api()) && device_data->draw_details_list.back().cmd_list_handle != 0u) {
       device_data->draw_detail_indexes_by_cmd_list[device_data->draw_details_list.back().cmd_list_handle].push_back(draw_index);
     }
@@ -4973,7 +5120,12 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
     return *bound_shaders;
   };
 
+  bool capture_draw = false;
   if (device == snapshot_device) {
+    std::shared_lock lock(device_data->mutex);
+    capture_draw = !device_data->capture_limit_reached;
+  }
+  if (capture_draw) {
 
     auto* command_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
     if (command_list_data == nullptr) return false;
@@ -5023,6 +5175,22 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
     };
 
     const auto& active_shaders = get_bound_shaders();
+    if (device_data->capture_unknown_shaders) {
+      for (const auto& [stage, hash] : active_shaders.shaders) {
+        if (stage != reshade::api::pipeline_stage::pixel_shader
+            && stage != reshade::api::pipeline_stage::compute_shader) continue;
+        if (device_data->capture_known_hashes.contains(hash)) continue;
+        const auto* details = device_data->GetShaderDetails(hash);
+        if (!details->addon_shader.empty() || details->shader_source == ShaderDetails::ShaderSource::DISK_SHADER) continue;
+        device_data->capture_known_hashes.insert(hash);
+        if (device_data->unknown_captures.size() >= 8u) continue;
+        if (!device_data->pending_unknown_capture.has_value()) {
+          device_data->pending_unknown_capture.emplace();
+          device_data->pending_unknown_capture->frame_index = device_data->capture_frame_index;
+        }
+        device_data->pending_unknown_capture->shader_hashes.push_back(hash);
+      }
+    }
     for (const auto& [stage, shader_hash] : active_shaders.shaders) {
       ShaderDetails* shader_details = nullptr;
 
@@ -5280,13 +5448,17 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
     }
     const auto draw_index = device_data->draw_details_list.size();
     const auto cmd_list_handle = draw_details.cmd_list_handle;
+    draw_details.frame_index = device_data->capture_frame_index;
     device_data->draw_details_list.push_back(std::move(draw_details));
+    if (device_data->draw_details_list.size() >= device_data->capture_max_records) {
+      device_data->capture_limit_reached = true;
+    }
     if (SupportsSnapshotSubmissionOrder(device->get_api()) && cmd_list_handle != 0u) {
       device_data->draw_detail_indexes_by_cmd_list[cmd_list_handle].push_back(draw_index);
     }
     device_data->snapshot_rows_valid = false;
     // command_list_data->draw_details.clear();
-  } else if (snapshot_device != nullptr) {
+  } else if (snapshot_device != nullptr && snapshot_device != device) {
     reshade::log::message(reshade::log::level::debug, "Foreign Draw.");
   } else if (skip_draw_count != 0) {
     std::shared_lock lock(device_data->mutex);
@@ -5448,8 +5620,14 @@ bool RenderFileAlias(std::optional<renodx::utils::shader::compiler::watcher::Cus
 void RenderMenuBar(reshade::api::device* device, DeviceData* data) {
   if (ImGui::BeginMenuBar()) {
     ImGui::PushID("##SnapshotButton");
-    ImGui::BeginDisabled(snapshot_device != nullptr);
+    ImGui::BeginDisabled(snapshot_device != nullptr || snapshot_queued_device != nullptr);
     if (ImGui::MenuItem("Snapshot")) {
+      data->capture_frame_count = 1u;
+      data->capture_frame_index = 0u;
+      data->capture_max_records = 20000u;
+      data->capture_limit_reached = false;
+      data->capture_unknown_shaders = false;
+      data->pending_unknown_capture.reset();
       QueueSnapshotCapture(device);
     }
     ImGui::EndDisabled();
@@ -9148,6 +9326,56 @@ void OnExecuteCommandList(
   device_data->draw_detail_indexes_by_cmd_list.erase(index_pair);
 }
 
+void OnUnknownShaderScreenshot(reshade::api::effect_runtime* runtime) {
+  auto* device = runtime->get_device();
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
+  if (data == nullptr) return;
+  std::unique_lock lock(data->mutex);
+  if (!data->pending_unknown_capture.has_value()) return;
+  // Device metadata can include more than one swapchain; only capture the selected primary window.
+  if (data->primary_swapchain_hwnd != nullptr && runtime->get_hwnd() != data->primary_swapchain_hwnd) return;
+  auto capture = std::move(data->pending_unknown_capture.value());
+  data->pending_unknown_capture.reset();
+  runtime->get_screenshot_width_and_height(&capture.width, &capture.height);
+  capture.format = device->get_resource_desc(runtime->get_current_back_buffer()).texture.format;
+  if (data->primary_swapchain != nullptr) capture.color_space = data->primary_swapchain->get_color_space();
+  size_t bytes_per_pixel = 4u;
+  switch (capture.format) {
+    case reshade::api::format::r16g16b16a16_float:
+      bytes_per_pixel = 8u;
+      break;
+    case reshade::api::format::r8g8b8a8_unorm:
+    case reshade::api::format::r8g8b8a8_unorm_srgb:
+    case reshade::api::format::b8g8r8a8_unorm:
+    case reshade::api::format::b8g8r8a8_unorm_srgb:
+    case reshade::api::format::r10g10b10a2_unorm:
+    case reshade::api::format::b10g10r10a2_unorm:
+      break;
+    default:
+      capture.error = "Unsupported screenshot format.";
+      break;
+  }
+  const uint64_t bytes = static_cast<uint64_t>(capture.width) * capture.height * bytes_per_pixel;
+  if (bytes == 0u || bytes + data->unknown_capture_bytes > 128u * 1024u * 1024u) {
+    capture.error = "Screenshot exceeds the 128 MiB session budget or has empty dimensions.";
+  }
+  if (capture.error.empty()) {
+    capture.pixels.resize(static_cast<size_t>(bytes));
+    data->unknown_readback_active = true;
+    lock.unlock();
+    const bool captured = runtime->capture_screenshot(capture.pixels.data());
+    lock.lock();
+    data->unknown_readback_active = false;
+    if (captured) {
+      data->unknown_capture_bytes += capture.pixels.size();
+    } else {
+      capture.pixels.clear();
+      capture.error = "ReShade screenshot readback failed.";
+    }
+  }
+  data->unknown_captures.push_back(std::move(capture));
+}
+
 void OnPresent(
     reshade::api::command_queue* queue,
     reshade::api::swapchain* swapchain,
@@ -9266,10 +9494,14 @@ void OnPresent(
       snapshot_queued_device = nullptr;
     }
   } else if (device == active_snapshot_device) {
-    snapshot_device = nullptr;
     auto* device_data = get_data();
     std::unique_lock lock(device_data->mutex);
+    ++device_data->capture_frame_index;
+    if (device_data->capture_frame_index < device_data->capture_frame_count
+        && !device_data->capture_limit_reached) return;
+    snapshot_device = nullptr;
     std::ranges::sort(device_data->draw_details_list, [](const DrawDetails& a, const DrawDetails& b) {
+      if (a.frame_index != b.frame_index) return a.frame_index < b.frame_index;
       const bool a_unknown_submission = a.submission_order == 0u;
       const bool b_unknown_submission = b.submission_order == 0u;
       if (a_unknown_submission != b_unknown_submission) return !a_unknown_submission;
@@ -9324,8 +9556,22 @@ extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX Dev
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
-    case DLL_PROCESS_ATTACH:
-      if (!reshade::register_addon(h_module)) return FALSE;
+    case DLL_PROCESS_ATTACH: {
+      // The Display Commander DXGI proxy has registration exports without the full ReShade API.
+      HMODULE modules[1024];
+      DWORD module_bytes = 0;
+      HMODULE reshade_module = nullptr;
+      if (!K32EnumProcessModules(GetCurrentProcess(), modules, sizeof(modules), &module_bytes)) return FALSE;
+      for (DWORD i = 0; i < module_bytes / sizeof(HMODULE) && i < 1024; ++i) {
+        if (GetProcAddress(modules[i], "ReShadeRegisterAddon") != nullptr
+            && GetProcAddress(modules[i], "ReShadeUnregisterAddon") != nullptr
+            && GetProcAddress(modules[i], "ReShadeGetImGuiFunctionTable") != nullptr
+            && GetProcAddress(modules[i], "GetDisplayCommanderState") == nullptr) {
+          reshade_module = modules[i];
+          break;
+        }
+      }
+      if (reshade_module == nullptr || !reshade::register_addon(h_module, reshade_module)) return FALSE;
 
       // while (IsDebuggerPresent() == 0) Sleep(100);
 
@@ -9372,6 +9618,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(OnDrawOrDispatchIndirect);
       reshade::register_event<reshade::addon_event::dispatch>(OnDispatch);
       reshade::register_event<reshade::addon_event::present>(OnPresent);
+      reshade::register_event<reshade::addon_event::reshade_present>(OnUnknownShaderScreenshot);
       reshade::register_event<reshade::addon_event::execute_command_list>(OnExecuteCommandList);
       reshade::register_event<reshade::addon_event::create_swapchain>(OnCreateSwapchain);
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
@@ -9380,6 +9627,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::register_overlay("RenoDX DevKit", OnRegisterOverlay);
 
       break;
+    }
     case DLL_PROCESS_DETACH:
       devkit_mcp_server_session::Stop(devkit_mcp_session);
 
@@ -9400,6 +9648,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::unregister_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
+      reshade::unregister_event<reshade::addon_event::reshade_present>(OnUnknownShaderScreenshot);
       reshade::unregister_event<reshade::addon_event::init_command_list>(OnInitCommandList);
       reshade::unregister_event<reshade::addon_event::destroy_command_list>(OnDestroyCommandList);
       reshade::unregister_event<reshade::addon_event::reset_command_list>(OnResetCommandList);

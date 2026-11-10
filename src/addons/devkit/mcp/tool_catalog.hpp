@@ -401,12 +401,23 @@ inline const renodx::utils::mcp::ToolCatalog METADATA = {
         "devkit_queue_snapshot",
         {
             .title = "Queue Snapshot",
-            .description = "Queue a new snapshot capture for a device on the next present.",
+            .description = "Record consecutive presented frames, retaining shader identities, bindings and copy metadata. Pixel contents remain live, not historical. Stops at frameCount or maxRecords; use list_draws/get_draw and dump_shader afterwards.",
             .input_schema = {
                 .properties = {
                     {"deviceIndex", {.types = {"integer"}, .minimum = 0}},
+                    {"frameCount", {.types = {"integer"}, .minimum = 1, .maximum = 3600}},
+                    {"maxRecords", {.types = {"integer"}, .minimum = 1, .maximum = 100000}},
+                    {"knownShaderHashes", {.types = {"array"}, .item_types = {"string"}}},
                 },
             },
+        },
+    },
+    {
+        "devkit_dump_unknown_captures",
+        {
+            .title = "Dump Unknown Shader Captures",
+            .description = "Export frozen first-use screenshots, original bytecode and draw metadata from a completed knownShaderHashes recording. Native HDR pixels are saved with format/color-space metadata, without tone mapping.",
+            .input_schema = {.properties = {{"deviceIndex", {.types = {"integer"}, .minimum = 0}}}},
         },
     },
 };

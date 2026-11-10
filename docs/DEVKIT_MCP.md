@@ -90,6 +90,59 @@ Texture replacement lookup checks `live` first, then the decoded `boot` cache.
 
 ## 4. Recommended investigation loop
 
+### Recording short effects and transitions
+
+`devkit_queue_snapshot` accepts `frameCount` (1..3600, default 1) and
+`maxRecords` (1..100000, default 20000). It retains consecutive frames in the
+snapshot cache instead of replacing the cache each frame. Draw and copy records
+include a zero-based `frameIndex`. Recording ends after the requested presents
+or when the record budget is reached. `devkit_snapshot_summary` reports
+`requestedFrames`, `capturedFrames`, and `recordLimitReached`.
+
+For example, queue `{ "frameCount": 600, "maxRecords": 20000 }` before
+triggering an effect, wait for `snapshotActive` and `snapshotQueued` to become
+false, then page through `devkit_list_draws` and inspect interesting records with
+`devkit_get_draw`. Compare shader hashes and resource descriptors across frames
+and dump newly observed shaders using `devkit_dump_shader`.
+
+Shader creation now also caches original bytecode before first use, so
+`devkit_list_shaders` includes preloaded shaders as well as captured draws.
+The creation cache admits at most 8192 identities, 1 MiB per shader and 64 MiB
+of bytecode. Existing lazy inspection can still retrieve other live shaders.
+Start DevKit before game initialization to see startup creation events.
+
+This records bindings, formats, shader identities and copy metadata. It does
+not freeze texture pixels or constant-buffer bytes. Resource analysis still
+reads current live contents; a destroyed or reused handle cannot provide
+historical pixels. Frame numbers count presents of the selected device, not
+wall-clock seconds. Deferred command-list submissions are not GPU completion
+events. Single-frame capture remains the default.
+
+Pass `knownShaderHashes` as an array of `"0x12345678"` strings to also arm
+first-use screenshots during the recording. An empty array treats every
+unpatched pixel/compute shader as unknown. Patched addon/live shaders are
+excluded automatically. Hashes are deduplicated for the session, and multiple
+unknown shaders in one frame share one screenshot. Trigger on draw/dispatch,
+not creation, because preloading a shader does not identify a scene.
+
+`devkit_snapshot_summary` includes `unknownScreenshots` and
+`unknownScreenshotPending`. Once recording and pending readback have ended,
+call `devkit_dump_unknown_captures` to export screenshots, triggering original
+shader bytecode and full draw metadata beneath the DevKit dump folder.
+The exported draw metadata is limited to frames with an unknown-shader trigger;
+the full recorded timeline remains available through `devkit_list_draws`.
+GPU readback runs automatically on `reshade_present`; disk writes run on the API
+thread when exported. Captures include ReShade effects/overlays. Up to eight
+frames and 128 MiB of screenshot pixels are retained. Failures are explicit in
+the manifest. Reaching the screenshot limit does not stop metadata recording.
+
+Screenshots are `.bin` plus width, height, format and color-space metadata in
+`manifest.json`: 8-bit backbuffers yield RGBA8, HDR10 yields packed native
+RGB10A2, and FP16 yields native RGBA16F. They are frozen screen pixels, not
+historical contents of intermediate resources. Native HDR pixels are retained
+without an SDR tone-map. Starting another recording clears previous captures;
+export before starting the next one.
+
 For a new game, work backward from the end of the frame.
 
 1. Connect and choose the active device.

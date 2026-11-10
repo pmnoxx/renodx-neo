@@ -149,6 +149,11 @@ inline void RegisterTools(renodx::utils::mcp::Server& server, const Registration
                                              const renodx::utils::mcp::json& arguments) {
     return snapshot_tools::HandleQueueSnapshotTool(arguments, build_snapshot_tools_context());
   });
+  register_tool("devkit_dump_unknown_captures", [build_snapshot_tools_context = context.build_snapshot_tools_context](
+                                                  const renodx::utils::mcp::json& arguments) {
+    const auto tool_context = build_snapshot_tools_context();
+    return tool_context.dump_unknown_captures(snapshot_tools::internal::ResolveDeviceIndex(arguments, tool_context));
+  });
 }
 
 }  // namespace renodx::addons::devkit::mcp::runtime
