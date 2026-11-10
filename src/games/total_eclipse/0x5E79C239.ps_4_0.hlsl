@@ -1,0 +1,102 @@
+// ---- Created with 3Dmigoto v1.3.16 on Tue Nov 10 03:22:19 2026
+
+cbuffer _Unif_g_0 : register(b1)
+{
+
+  struct
+  {
+    float4 pos_g;
+    float rate_g;
+    float time_g;
+    float alpha_g;
+    float exposure_g;
+    float brightness_g;
+    float value_g;
+    int loop_g;
+    float power_g;
+  } g : packoffset(c0);
+
+}
+
+SamplerState texture0_g_Sampler_s : register(s0);
+SamplerState texture1_g_Sampler_s : register(s1);
+Texture2D<float4> texture0_g_Texture : register(t0);
+Texture2D<float4> texture1_g_Texture : register(t1);
+
+
+// 3Dmigoto declarations
+#define cmp -
+
+
+void main(
+  float4 v0 : SV_POSITION0,
+  float2 v1 : LOCATION0,
+  out float4 o0 : SV_TARGET0)
+{
+  float4 r0,r1,r2,r3,r4,r5,r6;
+  uint4 bitmask, uiDest;
+  float4 fDest;
+
+  r0.x = cmp(g.rate_g < 0.5);
+  if (r0.x != 0) {
+    r0.x = g.rate_g + g.rate_g;
+    r0.y = 1 + -g.rate_g;
+    r1.x = v1.x;
+    r2.xyzw = float4(0,0,0,0);
+    r0.z = 8;
+    while (true) {
+      r0.w = cmp((int)r0.z < 0);
+      if (r0.w != 0) break;
+      r0.w = (int)r0.z;
+      r0.w = r0.w * r0.x;
+      r0.w = 0.0625 * r0.w;
+      r1.y = r0.y * v1.y + -r0.w;
+      r3.xyzw = texture0_g_Texture.Sample(texture0_g_Sampler_s, r1.xy).xyzw;
+      // Added: preserve original UNORM sampled alpha before filtering.
+      r3.w = saturate(r3.w);
+      r3.xyzw = r3.xyzw + -r2.xyzw;
+      r2.xyzw = r3.xyzw * float4(0.300000012,0.300000012,0.300000012,0.300000012) + r2.xyzw;
+      r0.z = (int)r0.z + -1;
+    }
+  } else {
+    r0.x = -0.5 + g.rate_g;
+    r0.y = r0.x + r0.x;
+    r0.zw = r0.xx * float2(2,2) + float2(1,-2);
+    r0.x = -r0.x * 2 + 1;
+    r0.z = r0.z * v1.y + r0.x;
+    r1.xz = v1.xx;
+    r3.xyzw = float4(0,0,0,0);
+    r4.xyzw = float4(0,0,0,0);
+    r5.x = 8;
+    while (true) {
+      r5.y = cmp((int)r5.x < 0);
+      if (r5.y != 0) break;
+      r5.y = (int)r5.x;
+      r5.y = 0.0625 * r5.y;
+      r1.y = v1.y * 0.5 + -r5.y;
+      r6.xyzw = texture0_g_Texture.Sample(texture0_g_Sampler_s, r1.xy).xyzw;
+      // Added: preserve original UNORM sampled alpha before filtering.
+      r6.w = saturate(r6.w);
+      r6.xyzw = r6.xyzw + -r3.xyzw;
+      r3.xyzw = r6.xyzw * float4(0.300000012,0.300000012,0.300000012,0.300000012) + r3.xyzw;
+      r1.y = r5.y * r0.x;
+      r1.w = r0.z * 0.5 + r1.y;
+      r6.xyzw = texture1_g_Texture.Sample(texture1_g_Sampler_s, r1.zw).xyzw;
+      // Added: preserve original UNORM sampled alpha before filtering.
+      r6.w = saturate(r6.w);
+      r6.xyzw = r6.xyzw + -r4.xyzw;
+      r4.xyzw = r6.xyzw * float4(0.300000012,0.300000012,0.300000012,0.300000012) + r4.xyzw;
+      r5.x = (int)r5.x + -1;
+    }
+    r0.x = -r0.y * r0.w;
+    r1.xyzw = r4.xyzw + -r3.xyzw;
+    r2.xyzw = r0.xxxx * r1.xyzw + r3.xyzw;
+  }
+  r0.x = 1 + g.exposure_g;
+  r0.x = g.brightness_g * r0.x;
+  o0.xyz = r2.xyz * r0.xxx;
+  // Original: o0.w = g.alpha_g * r2.w;
+  // Restore UNORM alpha at the float-target blend; retain RGB headroom.
+  o0.w = saturate(g.alpha_g * r2.w);
+  return;
+}
