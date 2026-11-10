@@ -1,0 +1,39 @@
+// Manually reconstructed from cs_9b8aefc669e75c42e5e91675916badaf8b9f6c7d57ff45718708819425cf2ff9.instructions.asm and its RDEF reflection.
+// Global/resource/member names are from RDEF; local names are inferred.
+// Compilation and binary equivalence are tracked separately in status.jsonl.
+cbuffer cb : register(b0) { uint4 const0 : packoffset(c0); uint4 const1 : packoffset(c1); }
+Texture2D<float4> InputTexture : register(t0);
+RWTexture2D<float4> OutputTexture : register(u0);
+// The integer operations on float bit patterns in the assembly are deliberate
+// fast reciprocal/square-root approximations. Do not replace with rcp/sqrt.
+float ApproxRcp(float x) { return asfloat(0x7ef07ebbu-asuint(x)); }
+float ApproxSqrt(float x) { return asfloat((asuint(x)>>1)+0x1fbc4639u); }
+float RefinedRcp(float x) { float r=asfloat(0x7ef19fffu-asuint(x)); return mad(-r,x,2)*r; }
+float3 Fetch(int2 p) { return InputTexture.Load(int3(p,0)).xyz; }
+float Weight(float minimum,float maximum) {
+    return ApproxSqrt(saturate(ApproxRcp(maximum)*min(minimum,1-maximum)))*asfloat(const1.x);
+}
+float3 Sharpen(int2 p) {
+    float3 left=Fetch(p+int2(-1,0)),top=Fetch(p+int2(0,-1)),center=Fetch(p);
+    float3 right=Fetch(p+int2(1,0)),bottom=Fetch(p+int2(0,1));
+    float lo=min(min(right.y,center.y),left.y); lo=min(lo,min(bottom.y,top.y));
+    float hi=max(max(right.y,center.y),left.y); hi=max(hi,max(bottom.y,top.y));
+    float a=Weight(lo,hi);
+    float3 sum=a*left; sum=mad(top,a,sum); sum=mad(right,a,sum); sum=mad(bottom,a,sum);
+    // Keep vanilla sharpening below SDR white; the original weight becomes
+    // zero above white. Remove only its destructive final HDR clamp.
+    return max(0.0, RefinedRcp(mad(a,4,1))*(center+sum));
+}
+uint2 RemapLane(uint lane) { return uint2((lane>>1)&7,((lane>>3)&~1u)|(lane&1)); }
+
+void StorePixel(uint2 pixel) {
+    float3 color=Sharpen(int2(pixel));
+
+    OutputTexture[pixel]=float4(color,1);
+}
+[numthreads(64,1,1)]
+void main(uint3 groupID : SV_GroupID,uint3 localID : SV_GroupThreadID) {
+    uint2 pixel=groupID.xy*16+RemapLane(localID.x);
+    StorePixel(pixel); StorePixel(pixel+uint2(8,0));
+    StorePixel(pixel+uint2(8,8)); StorePixel(pixel+uint2(0,8));
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "nier_automata",
+  "title": "NieR:Automata",
+  "category": "game",
+  "compatibility": "in-progress",
+  "status": "experimental",
+  "summary": "Native HDR detection bypass; scene HDR reconstruction is under development.",
+  "tags": ["HDR", "WIP"],
+  "deploy": {
+    "game_exe": "NieRAutomata.exe",
+    "process_name": "NieRAutomata.exe",
+    "steam_appid": 524220,
+    "api": "d3d11",
+    "architecture": ["x64"],
+    "platform": "steam",
+    "detection": {
+      "default_install_paths": ["C:\\Program Files (x86)\\Steam\\steamapps\\common\\NieRAutomata"],
+      "probe_process_by_name": true
+    }
+  }
+}
