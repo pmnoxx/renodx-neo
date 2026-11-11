@@ -1,4 +1,4 @@
-[![Clang](https://github.com/clshortfuse/renodx/actions/workflows/clang-x64.yml/badge.svg)](https://github.com/clshortfuse/renodx/actions/workflows/clang-x64.yml) [![Ninja](https://github.com/clshortfuse/renodx/actions/workflows/ninja-x64.yml/badge.svg)](https://github.com/clshortfuse/renodx/actions/workflows/ninja-x64.yml) [![Visual Studio](https://github.com/clshortfuse/renodx/actions/workflows/visual-studio-x64.yml/badge.svg)](https://github.com/clshortfuse/renodx/actions/workflows/visual-studio-x64.yml) 
+[![Snapshot](https://github.com/pmnoxx/renodx-neo/actions/workflows/snapshot.yml/badge.svg?branch=main)](https://github.com/pmnoxx/renodx-neo/actions/workflows/snapshot.yml)
 
 [![Discord](https://img.shields.io/discord/1408098019194310818?logo=discord&logoColor=%23fff&label=Discord&labelColor=%235865F2)](https://discord.gg/F6AUTeWJHM)
 
@@ -22,7 +22,7 @@ The games maintained in this fork are listed in [games.json](./games.json). This
 
 Build times update automatically after each successful snapshot build and GitHub Pages deployment. Times are shown in UTC; badge images may take a few minutes to refresh.
 
-Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). For other RenoDX mods, see the upstream [Mods page](https://github.com/clshortfuse/renodx/wiki/Mods).
+Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). Source code for other RenoDX mods is available under [src/games](./src/games); they are not included in this fork's snapshot.
 
 # Building these mods
 
@@ -44,4 +44,4 @@ Add another game's existing target name to `games.json` to include it in local b
 
 # Utilities
 
-Developer tools are available from the [upstream RenoDX snapshot](https://github.com/clshortfuse/renodx/releases/tag/snapshot).
+For building and using this fork's developer tools, see [DEVKIT_MCP.md](./docs/DEVKIT_MCP.md).
