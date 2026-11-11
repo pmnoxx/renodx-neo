@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <filesystem>
+#include <string>
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -26,8 +28,8 @@
 #include "./shared.h"
 
 #include "../../utils/iat_hook.hpp"
-#include "../../utils/vtable.hpp"
 #include "../../utils/platform.hpp"
+#include "../../utils/vtable.hpp"
 
 namespace {
 
@@ -38,8 +40,7 @@ renodx::utils::vtable::Slot<GetOutputDesc> output_desc_hook;
 uintptr_t game_begin = 0;
 uintptr_t game_end = 0;
 std::atomic_uint32_t hidden_hdr_queries = 0;
-bool hide_native_hdr = true;
-bool enable_hdr = false;
+HMODULE addon_module = nullptr;
 bool disable_camera_motion_blur = false;
 ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
 
@@ -98,6 +99,41 @@ HRESULT WINAPI OnCreateDXGIFactory(REFIID iid, void** factory) {
 }
 
 void OnInitDevice(reshade::api::device* device) {
+  // Normal addon loading misses the game's display query. Configure the next
+  // launch after ReShade has loaded its INI, preserving other early-load addons.
+  wchar_t module_path[MAX_PATH] = {};
+  if (const DWORD length = GetModuleFileNameW(addon_module, module_path, MAX_PATH);
+      length != 0 && length < MAX_PATH) {
+    const auto addon_file = std::filesystem::path(module_path).filename().string();
+    size_t entries_size = 0;
+    reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", nullptr, &entries_size);
+    std::string entries(entries_size, '\0');
+    if (entries_size == 0 || reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", entries.data(), &entries_size)) {
+      bool found = false;
+      size_t offset = 0;
+      while (offset < entries.size() && entries[offset] != '\0') {
+        const auto end = entries.find('\0', offset);
+        if (end == std::string::npos) break;
+        if (_stricmp(std::filesystem::path(entries.substr(offset, end - offset)).filename().string().c_str(), addon_file.c_str()) == 0) {
+          found = true;
+          break;
+        }
+        offset = end + 1;
+      }
+      if (!found) {
+        entries.resize(offset);
+        entries.append(addon_file);
+        entries.push_back('\0');
+        reshade::set_config_value(nullptr, "ADDON", "LoadFromDllMain", entries.c_str(), entries.size());
+        reshade::log::message(reshade::log::level::warning,
+                              "NieR:Automata: configured automatic early loading. Restart the game to activate native HDR suppression.");
+      }
+    } else {
+      reshade::log::message(reshade::log::level::error, "NieR:Automata: could not read early-load addon configuration.");
+    }
+  } else {
+    reshade::log::message(reshade::log::level::error, "NieR:Automata: could not resolve addon filename for automatic early loading.");
+  }
   if (device->get_api() != reshade::api::device_api::d3d11) {
     reshade::log::message(reshade::log::level::warning, "NieR:Automata: expected a D3D11 rendering device.");
   }
@@ -105,11 +141,11 @@ void OnInitDevice(reshade::api::device* device) {
     // Early LoadFromDllMain runs before ReShade finishes loading the INI.
     // Read optional FPS settings when the rendering device is initialized.
     if (!nier_automata::fps_unlock::installed.load()) {
-      uint32_t enabled = 0;
+      uint32_t enabled = 1;
       reshade::get_config_value(nullptr, "renodx-nier_automata", "UnlockFPS", enabled);
       nier_automata::fps_unlock::startup_enabled = enabled != 0;
       nier_automata::fps_unlock::requested.store(enabled != 0);
-      enabled = 120;
+      enabled = 60;
       reshade::get_config_value(nullptr, "renodx-nier_automata", "FPSLimit", enabled);
       nier_automata::fps_unlock::target_fps.store(static_cast<int>(std::clamp(enabled, 60u, 360u)));
       reshade::log::message(reshade::log::level::info,
@@ -123,48 +159,47 @@ void OnInitDevice(reshade::api::device* device) {
 
 void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("NieR:Automata HDR development");
-  ImGui::Text("Hide native HDR: %s (startup setting)", hide_native_hdr ? "enabled" : "disabled");
   ImGui::Text("Hidden native HDR queries: %u", hidden_hdr_queries.load(std::memory_order_relaxed));
-  ImGui::Text("RenoDX HDR: %s (startup setting)", enable_hdr ? "enabled" : "disabled");
-  if (enable_hdr) {
-    if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::SliderFloat("Peak brightness (nits)", &shader_injection.peak_white_nits, 203.f, 4000.f)) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "PeakWhiteNits", shader_injection.peak_white_nits);
-      }
-      if (ImGui::SliderFloat("Scene white (nits)", &shader_injection.diffuse_white_nits, 80.f, 400.f)) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "SceneWhiteNits", shader_injection.diffuse_white_nits);
-      }
-      if (ImGui::SliderFloat("UI white (nits)", &shader_injection.graphics_white_nits, 80.f, 400.f)) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "UIWhiteNits", shader_injection.graphics_white_nits);
-      }
-      static constexpr const char* tone_map_types[] = {"Vanilla", "None", "ACES", "RenoDRT"};
-      int tone_map_type = static_cast<int>(shader_injection.tone_map_type);
-      if (ImGui::Combo("Tone mapper", &tone_map_type, tone_map_types, IM_ARRAYSIZE(tone_map_types))) {
-        shader_injection.tone_map_type = static_cast<float>(tone_map_type);
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "ToneMapType", shader_injection.tone_map_type);
-      }
-      bool gamma_correction = shader_injection.gamma_correction != 0.f;
-      if (ImGui::Checkbox("Gamma correction (2.2)", &gamma_correction)) {
-        shader_injection.gamma_correction = gamma_correction ? 1.f : 0.f;
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "GammaCorrection", shader_injection.gamma_correction);
-      }
-      if (ImGui::SliderFloat("Exposure", &shader_injection.exposure, 0.f, 4.f, "%.2f")) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "Exposure", shader_injection.exposure);
-      }
+  if (hidden_hdr_queries.load(std::memory_order_relaxed) == 0) {
+    ImGui::TextWrapped("Restart the game to activate native HDR suppression. Early loading is configured automatically.");
+  }
+  if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::SliderFloat("Peak brightness (nits)", &shader_injection.peak_white_nits, 203.f, 4000.f)) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "PeakWhiteNits", shader_injection.peak_white_nits);
     }
-    if (ImGui::CollapsingHeader("Advanced color grading", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::SliderFloat("Highlights", &shader_injection.highlights, 0.f, 2.f, "%.2f")) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "Highlights", shader_injection.highlights);
-      }
-      if (ImGui::SliderFloat("Shadows", &shader_injection.shadows, 0.f, 2.f, "%.2f")) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "Shadows", shader_injection.shadows);
-      }
-      if (ImGui::SliderFloat("Contrast", &shader_injection.contrast, 0.f, 2.f, "%.2f")) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "Contrast", shader_injection.contrast);
-      }
-      if (ImGui::SliderFloat("Saturation", &shader_injection.saturation, 0.f, 2.f, "%.2f")) {
-        reshade::set_config_value(nullptr, "renodx-nier_automata", "Saturation", shader_injection.saturation);
-      }
+    if (ImGui::SliderFloat("Scene white (nits)", &shader_injection.diffuse_white_nits, 80.f, 400.f)) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "SceneWhiteNits", shader_injection.diffuse_white_nits);
+    }
+    if (ImGui::SliderFloat("UI white (nits)", &shader_injection.graphics_white_nits, 80.f, 400.f)) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "UIWhiteNits", shader_injection.graphics_white_nits);
+    }
+    static constexpr const char* tone_map_types[] = {"Vanilla", "None", "ACES", "RenoDRT"};
+    int tone_map_type = static_cast<int>(shader_injection.tone_map_type);
+    if (ImGui::Combo("Tone mapper", &tone_map_type, tone_map_types, IM_ARRAYSIZE(tone_map_types))) {
+      shader_injection.tone_map_type = static_cast<float>(tone_map_type);
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "ToneMapType", shader_injection.tone_map_type);
+    }
+    bool gamma_correction = shader_injection.gamma_correction != 0.f;
+    if (ImGui::Checkbox("Gamma correction (2.2)", &gamma_correction)) {
+      shader_injection.gamma_correction = gamma_correction ? 1.f : 0.f;
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "GammaCorrection", shader_injection.gamma_correction);
+    }
+    if (ImGui::SliderFloat("Exposure", &shader_injection.exposure, 0.f, 4.f, "%.2f")) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "Exposure", shader_injection.exposure);
+    }
+  }
+  if (ImGui::CollapsingHeader("Advanced color grading", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::SliderFloat("Highlights", &shader_injection.highlights, 0.f, 2.f, "%.2f")) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "Highlights", shader_injection.highlights);
+    }
+    if (ImGui::SliderFloat("Shadows", &shader_injection.shadows, 0.f, 2.f, "%.2f")) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "Shadows", shader_injection.shadows);
+    }
+    if (ImGui::SliderFloat("Contrast", &shader_injection.contrast, 0.f, 2.f, "%.2f")) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "Contrast", shader_injection.contrast);
+    }
+    if (ImGui::SliderFloat("Saturation", &shader_injection.saturation, 0.f, 2.f, "%.2f")) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "Saturation", shader_injection.saturation);
     }
   }
   nier_automata::fps_unlock::OnOverlay();
@@ -189,13 +224,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
   switch (reason) {
     case DLL_PROCESS_ATTACH: {
       if (!reshade::register_addon(module)) return FALSE;
-      uint32_t enabled = 1;
-      reshade::get_config_value(nullptr, "renodx-nier_automata", "HideNativeHDR", enabled);
-      hide_native_hdr = enabled != 0;
-      enabled = 1;
-      reshade::get_config_value(nullptr, "renodx-nier_automata", "EnableHDR", enabled);
-      enable_hdr = enabled != 0;
-      enabled = 0;
+      addon_module = module;
+      uint32_t enabled = 0;
       reshade::get_config_value(nullptr, "renodx-nier_automata", "DisableCameraMotionBlur", enabled);
       disable_camera_motion_blur = enabled != 0;
       reshade::get_config_value(nullptr, "renodx-nier_automata", "PeakWhiteNits", shader_injection.peak_white_nits);
@@ -231,37 +261,35 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
       }
       // Install before the game creates its factory and queries output capabilities.
-      if (hide_native_hdr && (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory"))) {
+      if (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory")) {
         reshade::log::message(reshade::log::level::error,
                               "NieR:Automata: native HDR bypass installation failed; addon not activated.");
         reshade::unregister_addon(module);
         return FALSE;
       }
-      if (enable_hdr) {
-        renodx::mods::shader::force_pipeline_cloning = true;
-        renodx::mods::shader::expected_constant_buffer_space = 50;
-        renodx::mods::shader::expected_constant_buffer_index = 13;
-        renodx::mods::shader::allow_multiple_push_constants = true;
-        renodx::mods::swapchain::expected_constant_buffer_index = 13;
-        renodx::mods::swapchain::expected_constant_buffer_space = 50;
-        renodx::mods::swapchain::use_resource_cloning = true;
-        // MSAA resolves into a shader-readable texture without render-target usage.
-        // Keep that full-resolution destination in the same FP16 family as its source.
-        renodx::mods::swapchain::resource_upgrade_infos.push_back({
-            .old_format = reshade::api::format::r8g8b8a8_unorm,
-            .new_format = reshade::api::format::r16g16b16a16_float,
-            .use_resource_view_cloning = true,
-            .usage_include = reshade::api::resource_usage::render_target | reshade::api::resource_usage::resolve_dest,
-            .name = "NieR:Automata output composite and MSAA resolve",
-        });
-        renodx::mods::swapchain::swap_chain_proxy_shaders = {
-            {reshade::api::device_api::d3d11, {
-                                                  .vertex_shader = __swap_chain_proxy_vertex_shader_dx11,
-                                                  .pixel_shader = __swap_chain_proxy_pixel_shader_dx11,
-                                              }},
-        };
-        renodx::mods::swapchain::SetUseHDR10(true);
-      }
+      renodx::mods::shader::force_pipeline_cloning = true;
+      renodx::mods::shader::expected_constant_buffer_space = 50;
+      renodx::mods::shader::expected_constant_buffer_index = 13;
+      renodx::mods::shader::allow_multiple_push_constants = true;
+      renodx::mods::swapchain::expected_constant_buffer_index = 13;
+      renodx::mods::swapchain::expected_constant_buffer_space = 50;
+      renodx::mods::swapchain::use_resource_cloning = true;
+      // MSAA resolves into a shader-readable texture without render-target usage.
+      // Keep that full-resolution destination in the same FP16 family as its source.
+      renodx::mods::swapchain::resource_upgrade_infos.push_back({
+          .old_format = reshade::api::format::r8g8b8a8_unorm,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          .use_resource_view_cloning = true,
+          .usage_include = reshade::api::resource_usage::render_target | reshade::api::resource_usage::resolve_dest,
+          .name = "NieR:Automata output composite and MSAA resolve",
+      });
+      renodx::mods::swapchain::swap_chain_proxy_shaders = {
+          {reshade::api::device_api::d3d11, {
+                                                .vertex_shader = __swap_chain_proxy_vertex_shader_dx11,
+                                                .pixel_shader = __swap_chain_proxy_pixel_shader_dx11,
+                                            }},
+      };
+      renodx::mods::swapchain::SetUseHDR10(true);
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::register_overlay("NieR:Automata", OnOverlay);
       break;
@@ -285,9 +313,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       reshade::unregister_addon(module);
       break;
   }
-  if (enable_hdr) {
-    renodx::mods::swapchain::Use(reason, &shader_injection);
-    renodx::mods::shader::Use(reason, custom_shaders, &shader_injection);
-  }
+  renodx::mods::swapchain::Use(reason, &shader_injection);
+  renodx::mods::shader::Use(reason, custom_shaders, &shader_injection);
   return TRUE;
 }

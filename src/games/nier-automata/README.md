@@ -2,12 +2,13 @@
 
 ## Experimental FPS unlocker
 
-Set `[renodx-nier_automata] UnlockFPS=1` and `FPSLimit=120` in ReShade.ini,
-then restart. The overlay exposes the same controls and saves them. The FPS
+Unlock FPS is enabled by default with a 60 FPS limit. Raise the gameplay FPS
+target in the overlay to unlock higher frame rates; the overlay saves both
+controls. Existing saved `UnlockFPS` and `FPSLimit` values take precedence. The FPS
 target accepts 60–360. After installation, turning Unlock FPS off immediately
 uses a 60 FPS safety cap; turning it on again uses the saved gameplay target.
 Installing the unlocker pins the addon until process exit, so hot-unload requires
-a restart. The default is disabled and the feature works independently of HDR.
+a restart.
 
 The implementation was authored from the installed Steam executable's machine
 code. It bypasses the engine's render wait and
@@ -34,13 +35,13 @@ Full gameplay progression and every timing-sensitive sequence remain unverified.
 
 Experimental D3D11/x64 development addon. The current baseline hides native HDR through `IDXGIOutput6::GetDesc1`. Successful queries originating inside the game executable receive SDR BT.709 color space and eight bits per color. Calls from RenoDX, DevKit and other modules retain the real descriptor. Windows HDR stays enabled independently of this game setting.
 
-`[renodx-nier_automata] HideNativeHDR=1` in ReShade.ini enables the startup hook (default). Set it to `0` and restart to compare native detection. Use `[ADDON] LoadFromDllMain=renodx-nier-automata.addon64` to load before native display detection. Normal device-time addon loading is too late. The addon intercepts the executable's named `CreateDXGIFactory` import, preserving ReShade's current redirected entry point, and installs the output descriptor hook on the primary adapter/output implementation before returning the factory to the game. The actual hook hit and resulting SDR swapchain must be verified; multi-adapter implementations have not been tested.
+Native HDR suppression is always enabled. The addon automatically adds its actual filename to ReShade's `ADDON.LoadFromDllMain` list while preserving other entries. A fresh installation needs one full game restart after the first launch so the addon can load before native display detection. The overlay and log show a restart notice when no game HDR query was intercepted. No manual INI edit is required. Normal device-time addon loading is too late for that launch. The addon intercepts the executable's named `CreateDXGIFactory` import, preserving ReShade's current redirected entry point, and installs the output descriptor hook on the primary adapter/output implementation before returning the factory to the game. The actual hook hit must be verified; multi-adapter implementations have not been tested.
 
 The overlay shows the count of intercepted game queries. The addon fails to activate if the factory import cannot be patched; output-hook installation failures are logged. The real API handles failed/null queries unchanged. The game uses `DisplayConfigGetDeviceInfo` for display names, so hooking advanced-color packets there did not disable its HDR.
 
 ## Custom RenoDX HDR
 
-`[renodx-nier_automata] EnableHDR=1` (default) upgrades the SDR rendering path to HDR10. `EnableHDR=0` plus a restart restores the verified SDR baseline with no addon resource upgrades or shader replacements. Keep `HideNativeHDR=1` in both modes. Do not enable the game's native HDR.
+The addon always upgrades the SDR rendering path to HDR10 and suppresses the game's native HDR detection. There are no `HideNativeHDR` or `EnableHDR` config options; obsolete entries are ignored. Brightness, tone mapping, grading, FPS, and motion-blur controls remain configurable.
 
 - `0x7FB4ADA1`: capture scene + bloom, vignette and exposure before the rational SDR curve. Preserve original strip-LUT addressing, LUT blend and brightness as a decoded SDR grade reference. Forward-map the real upstream scene with three-input `ToneMapPass`, using the rational curve as the neutral reference. Write extended sRGB-shaped values for later game composition.
 - `0x644BD65C`: preserve the reconstructed SDR CAS algorithm, removing its final saturate. Above-white neighborhoods naturally disable its SDR sharpening weight; highlights pass through without clipping. This manually reconstructed shader compiles but is not binary-equivalent to the original.
@@ -57,6 +58,10 @@ Build from the existing Clang x64 environment with `cmake --build --preset clang
 Verified in the title/menu and a loaded forest gameplay scene: native HDR query masked, SDR tonemap and CAS hashes active as addon replacements, native HDR dispatches absent, RGB10A2/PQ presentation, full-resolution FP16 compositor/proxy. Gameplay readback retained values above one through scene, tonemap, CAS and the presentation proxy. HUD and minimap rendered in the captured scene. This establishes a working experimental HDR pipeline; full SDR appearance matching, peak adjustment comparisons, other areas/effects, menus and video still need broader visual validation.
 
 The original tonemap reconstruction was visually checked on the title screen but is not proven pixel-equivalent. The other offline reconstructed compute shaders are not registered. Multi-adapter native HDR detection remains untested.
+
+### Startup verification
+
+With no addon settings or early-load entry, launch once and verify the addon appends its filename to `ADDON.LoadFromDllMain`; restart and confirm the log reports output-hook installation and an intercepted native HDR query. Existing early-load entries must survive without duplicate NieR entries. Legacy zero-valued `HideNativeHDR`/`EnableHDR` keys must not disable either behavior. Without saved FPS settings, the overlay must show Unlock FPS enabled at 60; saved FPS choices must still apply. With Windows HDR enabled, verify native HDR dispatches are absent and analyzer luminance extends above SDR white. These runtime checks are required in addition to a successful build.
 
 ## Camera motion blur
 

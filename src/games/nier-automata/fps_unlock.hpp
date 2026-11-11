@@ -39,13 +39,13 @@ constexpr std::array<uint8_t, 14> TIMER_ENTRY = {
 using UpdateTimer = void (*)(void*, uint32_t, float);
 static UpdateTimer original_update_timer = nullptr;
 static uintptr_t image_base = 0;
-static bool startup_enabled = false;
+static bool startup_enabled = true;
 static std::atomic_bool installed = false;
-static std::atomic_bool requested = false;
-static std::atomic_int target_fps = 120;
+static std::atomic_bool requested = true;
+static std::atomic_int target_fps = 60;
 static std::atomic<float> observed_fps = 0.f;
 static std::atomic<float> simulation_step = 1.f;
-static const char* status = "Disabled at startup";
+static const char* status = "Waiting for initialization";
 
 void OnUpdateTimer(void* timer, uint32_t advance, float fixed_step) {
   if (reinterpret_cast<uintptr_t>(timer) != image_base + GAME_TIMER_RVA) {
@@ -102,7 +102,11 @@ void OnUpdateTimer(void* timer, uint32_t advance, float fixed_step) {
 }
 
 void Initialize(uintptr_t base) {
-  if (!startup_enabled || installed.load(std::memory_order_acquire)) return;
+  if (!startup_enabled) {
+    status = "Disabled at startup";
+    return;
+  }
+  if (installed.load(std::memory_order_acquire)) return;
   image_base = base;
   reshade::log::message(reshade::log::level::info, "NieR:Automata FPS: initializing independent unlocker.");
   const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
