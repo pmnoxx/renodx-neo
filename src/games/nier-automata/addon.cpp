@@ -11,11 +11,11 @@
 #include <Windows.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <exception>
-#include <filesystem>
 #include <string>
 
 #include <deps/imgui/imgui.h>
@@ -42,7 +42,8 @@ uintptr_t game_end = 0;
 std::atomic_uint32_t hidden_hdr_queries = 0;
 HMODULE addon_module = nullptr;
 std::string addon_version;
-std::atomic_bool hdr_restart_required = false;
+enum class NativeHdrPatchStatus { PENDING, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
+std::atomic<NativeHdrPatchStatus> native_hdr_patch_status = NativeHdrPatchStatus::PENDING;
 bool disable_camera_motion_blur = false;
 ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
 
@@ -101,49 +102,68 @@ HRESULT WINAPI OnCreateDXGIFactory(REFIID iid, void** factory) {
 }
 
 void OnInitDevice(reshade::api::device* device) {
-  // Normal addon loading misses the game's display query. Configure the next
-  // launch after ReShade has loaded its INI, preserving other early-load addons.
   wchar_t module_path[MAX_PATH] = {};
   if (const DWORD length = GetModuleFileNameW(addon_module, module_path, MAX_PATH);
       length != 0 && length < MAX_PATH) {
     addon_version = renodx::utils::platform::GetFileVersion(module_path);
-    const auto addon_file = std::filesystem::path(module_path).filename().string();
-    size_t entries_size = 0;
-    reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", nullptr, &entries_size);
-    std::string entries(entries_size, '\0');
-    if (entries_size == 0 || reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", entries.data(), &entries_size)) {
-      bool found = false;
-      size_t offset = 0;
-      while (offset < entries.size() && entries[offset] != '\0') {
-        const auto end = entries.find('\0', offset);
-        if (end == std::string::npos) break;
-        if (_stricmp(std::filesystem::path(entries.substr(offset, end - offset)).filename().string().c_str(), addon_file.c_str()) == 0) {
-          found = true;
-          break;
-        }
-        offset = end + 1;
-      }
-      if (!found) {
-        entries.resize(offset);
-        entries.append(addon_file);
-        entries.push_back('\0');
-        reshade::set_config_value(nullptr, "ADDON", "LoadFromDllMain", entries.c_str(), entries.size());
-        hdr_restart_required.store(hidden_hdr_queries.load(std::memory_order_relaxed) == 0);
-        reshade::log::message(reshade::log::level::warning,
-                              "NieR:Automata: configured automatic early loading. Restart the game to activate native HDR suppression.");
-      }
-    } else {
-      reshade::log::message(reshade::log::level::error, "NieR:Automata: could not read early-load addon configuration.");
-    }
-  } else {
-    reshade::log::message(reshade::log::level::error, "NieR:Automata: could not resolve addon filename for automatic early loading.");
   }
   if (device->get_api() != reshade::api::device_api::d3d11) {
     reshade::log::message(reshade::log::level::warning, "NieR:Automata: expected a D3D11 rendering device.");
   }
   if (device->get_api() == reshade::api::device_api::d3d11) {
-    // Early LoadFromDllMain runs before ReShade finishes loading the INI.
-    // Read optional FPS settings when the rendering device is initialized.
+    if (native_hdr_patch_status.load() == NativeHdrPatchStatus::PENDING) {
+      // ReShade invokes init_device inside D3D11CreateDevice, before the game
+      // returns to display setup and executes this GetDesc1 decision block.
+      // Clear BOTH the HDR flag and saved color space before formats/shaders
+      // are selected, including when a real DXGI output still reports HDR10.
+      constexpr uintptr_t HDR_DECISION_RVA = 0x25E88E;
+      constexpr std::array<uint8_t, 25> ORIGINAL_HDR_DECISION = {
+          0x8B, 0x4D, 0x34, 0x89, 0x4F, 0x70, 0x83, 0xF9, 0x0C, 0x75, 0x09,
+          0xC7, 0x47, 0x18, 0x01, 0x00, 0x00, 0x00, 0xEB, 0x05, 0x33, 0xC0, 0x89, 0x47, 0x18};
+      // xor ecx,ecx; mov [rdi+70h],ecx; mov [rdi+18h],ecx; nop padding.
+      constexpr std::array<uint8_t, 25> SDR_HDR_DECISION = {
+          0x33, 0xC9, 0x89, 0x4F, 0x70, 0x89, 0x4F, 0x18,
+          0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+          0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+      constexpr std::array<uint8_t, 7> GET_DESC_CALL = {0x41, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00};
+      const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
+      const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);
+      auto* decision = reinterpret_cast<void*>(game_begin + HDR_DECISION_RVA);
+      if (nt->FileHeader.TimeDateStamp != 0x6AC89519 || nt->OptionalHeader.SizeOfImage != 0x18BE000
+          || std::memcmp(decision, ORIGINAL_HDR_DECISION.data(), ORIGINAL_HDR_DECISION.size()) != 0
+          || std::memcmp(reinterpret_cast<void*>(game_begin + 0x25E887), GET_DESC_CALL.data(), GET_DESC_CALL.size()) != 0) {
+        native_hdr_patch_status.store(NativeHdrPatchStatus::UNSUPPORTED);
+        reshade::log::message(reshade::log::level::error,
+                              "NieR:Automata HDR: unsupported executable or conflicting HDR patch; memory patch not installed.");
+      } else {
+        DWORD old_protection = 0;
+        if (VirtualProtect(decision, SDR_HDR_DECISION.size(), PAGE_EXECUTE_READWRITE, &old_protection)) {
+          std::memcpy(decision, SDR_HDR_DECISION.data(), SDR_HDR_DECISION.size());
+          if (!FlushInstructionCache(GetCurrentProcess(), decision, SDR_HDR_DECISION.size())) {
+            reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: instruction cache flush failed.");
+          }
+          DWORD ignored = 0;
+          if (!VirtualProtect(decision, SDR_HDR_DECISION.size(), old_protection, &ignored)) {
+            reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: could not restore code page protection.");
+          }
+          // The patch contains no addon pointers and is kept for process lifetime.
+          // Restoring it during unload would re-enable native HDR on display rebuild.
+          native_hdr_patch_status.store(NativeHdrPatchStatus::INSTALLED);
+          reshade::log::message(reshade::log::level::info,
+                                "NieR:Automata HDR: native HDR decision memory patch installed (Steam build 6AC89519).");
+        } else {
+          native_hdr_patch_status.store(NativeHdrPatchStatus::PROTECTION_FAILED);
+          reshade::log::message(reshade::log::level::error, "NieR:Automata HDR: cannot write native HDR decision code.");
+        }
+      }
+    }
+    // Normal loading happens after the game's factory was created. Obtain an
+    // output now as well, so its GetDesc1 hook is ready on the first launch.
+    if (original_create_dxgi_factory != nullptr && output_desc_hook.installed_address == nullptr) {
+      Microsoft::WRL::ComPtr<IDXGIFactory> factory;
+      OnCreateDXGIFactory(__uuidof(IDXGIFactory), reinterpret_cast<void**>(factory.GetAddressOf()));
+    }
+    // Read optional FPS settings after ReShade has loaded its INI.
     if (!nier_automata::fps_unlock::installed.load()) {
       uint32_t enabled = 1;
       reshade::get_config_value(nullptr, "renodx-nier_automata", "UnlockFPS", enabled);
@@ -161,46 +181,19 @@ void OnInitDevice(reshade::api::device* device) {
   }
 }
 
-void OnRestartWarning(reshade::api::effect_runtime* runtime) {
-  static bool warning_shown = false;
-  static double warning_opened_at = 0.0;
-  if (!warning_shown && hdr_restart_required.load()) {
-    ImGui::OpenPopup("Restart required for HDR###nier_hdr_restart");
-    warning_opened_at = ImGui::GetTime();
-    warning_shown = true;
-  }
-  ImGui::SetNextWindowSize(ImVec2(520.f, 0.f), ImGuiCond_Appearing);
-  if (ImGui::BeginPopupModal("Restart required for HDR###nier_hdr_restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::GetIO().MouseDrawCursor = true;
-    runtime->block_input_next_frame();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.25f, 0.25f, 1.f));
-    ImGui::TextWrapped("Your game needs to be restarted for HDR to work correctly.");
-    ImGui::PopStyleColor();
-    ImGui::TextWrapped("Due to ReShade's addon loading limitations, native HDR detection happened before this addon loaded. Early loading is now configured automatically.");
-    ImGui::TextWrapped("Fully close the game and launch it again. No manual configuration is needed.");
-    const int seconds_remaining = std::max(0, 10 - static_cast<int>(ImGui::GetTime() - warning_opened_at));
-    if (seconds_remaining > 0) {
-      ImGui::Text("Please read this warning. You can dismiss it in %d seconds.", seconds_remaining);
-    }
-    ImGui::BeginDisabled(seconds_remaining > 0);
-    if (ImGui::Button("Understood")) {
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndDisabled();
-    ImGui::EndPopup();
-  }
-}
-
 void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("NieR:Automata HDR development");
   ImGui::Text("Version: %s", (addon_version.empty() ? "unknown" : addon_version.c_str()));
   ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
   ImGui::Text("Hidden native HDR queries: %u", hidden_hdr_queries.load(std::memory_order_relaxed));
-  if (hidden_hdr_queries.load(std::memory_order_relaxed) == 0) {
+  if (native_hdr_patch_status.load() == NativeHdrPatchStatus::INSTALLED) {
+    ImGui::TextUnformatted("Native HDR memory patch: installed");
+  } else {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.25f, 0.25f, 1.f));
-    ImGui::TextWrapped("Restart the game to activate native HDR suppression. Early loading is configured automatically.");
+    ImGui::TextWrapped("Native HDR memory patch unavailable. See ReShade.log for executable or patch errors.");
     ImGui::PopStyleColor();
   }
+  ImGui::Text("Output descriptor hook: %s", (output_desc_hook.installed_address != nullptr ? "installed" : "unavailable"));
   if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::SliderFloat("Peak brightness (nits)", &shader_injection.peak_white_nits, 203.f, 4000.f)) {
       reshade::set_config_value(nullptr, "renodx-nier_automata", "PeakWhiteNits", shader_injection.peak_white_nits);
@@ -298,12 +291,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
           }
         }
       }
-      // Install before the game creates its factory and queries output capabilities.
+      // Cover factory creation during early loading and later display rebuilds.
       if (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory")) {
         reshade::log::message(reshade::log::level::error,
-                              "NieR:Automata: native HDR bypass installation failed; addon not activated.");
-        reshade::unregister_addon(module);
-        return FALSE;
+                              "NieR:Automata: factory hook unavailable; native HDR memory patch will still be attempted.");
       }
       renodx::mods::shader::force_pipeline_cloning = true;
       renodx::mods::shader::expected_constant_buffer_space = 50;
@@ -329,7 +320,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       };
       renodx::mods::swapchain::SetUseHDR10(true);
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
-      reshade::register_event<reshade::addon_event::reshade_overlay>(OnRestartWarning);
       reshade::register_overlay("NieR:Automata", OnOverlay);
       break;
     }
@@ -348,7 +338,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
       }
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
-      reshade::unregister_event<reshade::addon_event::reshade_overlay>(OnRestartWarning);
       reshade::unregister_overlay("NieR:Automata", OnOverlay);
       reshade::unregister_addon(module);
       break;

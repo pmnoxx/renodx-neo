@@ -5,14 +5,13 @@ Include both lines in bug-report screenshots to identify the installed build.
 The file version is generated during CMake configuration in UTC; the compile time
 uses the build machine's local timezone.
 
-On a fresh installation, configuring early loading before any native HDR query
-was intercepted opens a restart popup automatically, even with the ReShade menu
-closed. Its red warning explains the ReShade loading limitation and asks the user
-to fully close and relaunch the game. A 10-second countdown keeps `Understood`
-disabled while the warning is read. `Understood` then dismisses it for that process;
-it does not restart the game. A red reminder remains in the addon overlay.
-Verify with an empty INI: first launch shows the popup, dismissal does not repeat
-it that session, and the next launch with working early loading shows no popup.
+Native HDR suppression uses a version-checked memory patch plus a game-caller
+`IDXGIOutput6::GetDesc1` hook. On the supported Steam executable, both install
+during D3D11 device initialization, before the game makes its native HDR decision.
+No early-load configuration or first-launch restart is required. The addon no
+longer writes `ADDON.LoadFromDllMain`, and the restart popup/countdown is removed.
+Existing early-load entries are left untouched. The overlay reports memory-patch
+and output-hook installation separately; errors are recorded in `ReShade.log`.
 
 ## Experimental FPS unlocker
 
@@ -47,11 +46,11 @@ a normalized simulation step near 0.5 (8.333 ms times 0.06 ticks/ms), and the
 user confirmed unlocking worked after increasing the display refresh rate.
 Full gameplay progression and every timing-sensitive sequence remain unverified.
 
-Experimental D3D11/x64 development addon. The current baseline hides native HDR through `IDXGIOutput6::GetDesc1`. Successful queries originating inside the game executable receive SDR BT.709 color space and eight bits per color. Calls from RenoDX, DevKit and other modules retain the real descriptor. Windows HDR stays enabled independently of this game setting.
+Experimental D3D11/x64 development addon. Successful `IDXGIOutput6::GetDesc1` queries originating inside the game executable receive SDR BT.709 color space and eight bits per color. Calls from RenoDX, DevKit and other modules retain the real descriptor. Windows HDR stays enabled independently of this game setting.
 
-Native HDR suppression is always enabled. The addon automatically adds its actual filename to ReShade's `ADDON.LoadFromDllMain` list while preserving other entries. A fresh installation needs one full game restart after the first launch so the addon can load before native display detection. The overlay and log show a restart notice when no game HDR query was intercepted. No manual INI edit is required. Normal device-time addon loading is too late for that launch. The addon intercepts the executable's named `CreateDXGIFactory` import, preserving ReShade's current redirected entry point, and installs the output descriptor hook on the primary adapter/output implementation before returning the factory to the game. The actual hook hit must be verified; multi-adapter implementations have not been tested.
+Native HDR suppression is always enabled. The memory patch replaces the game's decision block at RVA `25E88E`, forcing both its native HDR flag and saved output color space to SDR before buffer formats and rendering shaders are selected. It checks PE timestamp `6AC89519`, image size `018BE000`, the entire original 25-byte decision block and the adjacent GetDesc1 call. Unknown or conflicting builds are left unpatched and reported as errors. The patch changes process memory only and remains until process exit; it contains no addon callback addresses. It also applies to later executions of the same display initialization path.
 
-The overlay shows the count of intercepted game queries. The addon fails to activate if the factory import cannot be patched; output-hook installation failures are logged. The real API handles failed/null queries unchanged. The game uses `DisplayConfigGetDeviceInfo` for display names, so hooking advanced-color packets there did not disable its HDR.
+The output hook remains separate from the memory patch. The addon intercepts the executable's named `CreateDXGIFactory` import while preserving ReShade's redirected entry point. Normal device-time loading also obtains a factory/output immediately, so installation does not depend on observing the game's earlier factory creation. The descriptor hook uses the primary adapter/output implementation; other implementations remain untested. The overlay shows the count of intercepted game queries, which alone does not establish the native HDR state. Factory/output-hook installation failures are logged independently of memory-patch status. Failed/null descriptor queries retain the real API result. The game's DisplayConfigGetDeviceInfo calls retrieve display names, rather than HDR enablement.
 
 ## Custom RenoDX HDR
 
@@ -75,7 +74,7 @@ The original tonemap reconstruction was visually checked on the title screen but
 
 ### Startup verification
 
-With no addon settings or early-load entry, launch once and verify the addon appends its filename to `ADDON.LoadFromDllMain`; restart and confirm the log reports output-hook installation and an intercepted native HDR query. Existing early-load entries must survive without duplicate NieR entries. Legacy zero-valued `HideNativeHDR`/`EnableHDR` keys must not disable either behavior. Without saved FPS settings, the overlay must show Unlock FPS enabled at 60; saved FPS choices must still apply. With Windows HDR enabled, verify native HDR dispatches are absent and analyzer luminance extends above SDR white. These runtime checks are required in addition to a successful build.
+With Windows HDR enabled and no early-load entry, launch once and confirm both `native HDR decision memory patch installed` and output-hook installation in the log. Verify the main display's native HDR flag and saved color space are zero, native HDR dispatches are absent, and analyzer luminance extends above SDR white. No restart popup should appear, and `ADDON.LoadFromDllMain` must remain unchanged. Repeat with an empty INI and with existing unrelated early-load entries; verify display changes/MSAA rebuilds stay SDR internally. Unsupported/conflicting executable anchors must report a patch failure without writing those bytes. Legacy zero-valued `HideNativeHDR`/`EnableHDR` keys must not disable either behavior. Without saved FPS settings, the overlay must show Unlock FPS enabled at 60; saved FPS choices must still apply. The decision bytes were checked against the supported executable and the replacement machine code was executed in an isolated buffer for six input color spaces, with surrounding bytes preserved. First-launch game runtime validation of this memory-patch startup path remains pending; earlier runtime evidence above used the descriptor hook with early loading.
 
 ## Camera motion blur
 
