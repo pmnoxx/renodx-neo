@@ -8,7 +8,8 @@ uses the build machine's local timezone.
 On a fresh installation, configuring early loading before any native HDR query
 was intercepted opens a restart popup automatically, even with the ReShade menu
 closed. Its red warning explains the ReShade loading limitation and asks the user
-to fully close and relaunch the game. `Understood` dismisses it for that process;
+to fully close and relaunch the game. A 10-second countdown keeps `Understood`
+disabled while the warning is read. `Understood` then dismisses it for that process;
 it does not restart the game. A red reminder remains in the addon overlay.
 Verify with an empty INI: first launch shows the popup, dismissal does not repeat
 it that session, and the next launch with working early loading shows no popup.

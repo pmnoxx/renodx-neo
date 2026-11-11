@@ -163,8 +163,10 @@ void OnInitDevice(reshade::api::device* device) {
 
 void OnRestartWarning(reshade::api::effect_runtime* runtime) {
   static bool warning_shown = false;
+  static double warning_opened_at = 0.0;
   if (!warning_shown && hdr_restart_required.load()) {
     ImGui::OpenPopup("Restart required for HDR###nier_hdr_restart");
+    warning_opened_at = ImGui::GetTime();
     warning_shown = true;
   }
   ImGui::SetNextWindowSize(ImVec2(520.f, 0.f), ImGuiCond_Appearing);
@@ -176,9 +178,15 @@ void OnRestartWarning(reshade::api::effect_runtime* runtime) {
     ImGui::PopStyleColor();
     ImGui::TextWrapped("Due to ReShade's addon loading limitations, native HDR detection happened before this addon loaded. Early loading is now configured automatically.");
     ImGui::TextWrapped("Fully close the game and launch it again. No manual configuration is needed.");
+    const int seconds_remaining = std::max(0, 10 - static_cast<int>(ImGui::GetTime() - warning_opened_at));
+    if (seconds_remaining > 0) {
+      ImGui::Text("Please read this warning. You can dismiss it in %d seconds.", seconds_remaining);
+    }
+    ImGui::BeginDisabled(seconds_remaining > 0);
     if (ImGui::Button("Understood")) {
       ImGui::CloseCurrentPopup();
     }
+    ImGui::EndDisabled();
     ImGui::EndPopup();
   }
 }
