@@ -41,6 +41,7 @@ uintptr_t game_begin = 0;
 uintptr_t game_end = 0;
 std::atomic_uint32_t hidden_hdr_queries = 0;
 HMODULE addon_module = nullptr;
+std::string addon_version;
 bool disable_camera_motion_blur = false;
 ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
 
@@ -104,6 +105,7 @@ void OnInitDevice(reshade::api::device* device) {
   wchar_t module_path[MAX_PATH] = {};
   if (const DWORD length = GetModuleFileNameW(addon_module, module_path, MAX_PATH);
       length != 0 && length < MAX_PATH) {
+    addon_version = renodx::utils::platform::GetFileVersion(module_path);
     const auto addon_file = std::filesystem::path(module_path).filename().string();
     size_t entries_size = 0;
     reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", nullptr, &entries_size);
@@ -159,6 +161,8 @@ void OnInitDevice(reshade::api::device* device) {
 
 void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("NieR:Automata HDR development");
+  ImGui::Text("Version: %s", (addon_version.empty() ? "unknown" : addon_version.c_str()));
+  ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
   ImGui::Text("Hidden native HDR queries: %u", hidden_hdr_queries.load(std::memory_order_relaxed));
   if (hidden_hdr_queries.load(std::memory_order_relaxed) == 0) {
     ImGui::TextWrapped("Restart the game to activate native HDR suppression. Early loading is configured automatically.");

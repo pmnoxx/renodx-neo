@@ -1,5 +1,10 @@
 # NieR:Automata
 
+The overlay displays the loaded addon's embedded file version and compile date/time.
+Include both lines in bug-report screenshots to identify the installed build.
+The file version is generated during CMake configuration in UTC; the compile time
+uses the build machine's local timezone.
+
 ## Experimental FPS unlocker
 
 Unlock FPS is enabled by default with a 60 FPS limit. Raise the gameplay FPS
