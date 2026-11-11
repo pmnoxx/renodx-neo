@@ -15,12 +15,12 @@ RenoDX, short for "Renovation Engine for DirectX Games", is a toolset to mod gam
 
 The games maintained in this fork are listed in [games.json](./games.json). This list controls both `build.cmd` and the snapshot build. Entries use the CMake target/folder names under `src/games`.
 
-| Game | Snapshot download | Last built (UTC) |
+| Game | Snapshot download | Latest source update |
 | --- | --- | --- |
-| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | ![Total Eclipse build time](https://pmnoxx.github.io/renodx-neo/build-total-eclipse.svg) |
-| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | ![NieR:Automata build time](https://pmnoxx.github.io/renodx-neo/build-nier-automata.svg) |
+| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Ftotal-eclipse&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/total-eclipse) |
+| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fnier-automata&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/nier-automata) |
 
-Build times update automatically after each successful snapshot build and GitHub Pages deployment. Times are shown in UTC; badge images may take a few minutes to refresh.
+Snapshot badges show the latest commit to each game's source folder on `main`.
 
 Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). Source code for other RenoDX mods is available under [src/games](./src/games); they are not included in this fork's snapshot.
 
