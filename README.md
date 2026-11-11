@@ -15,10 +15,12 @@ RenoDX, short for "Renovation Engine for DirectX Games", is a toolset to mod gam
 
 The games maintained in this fork are listed in [games.json](./games.json). This list controls both `build.cmd` and the snapshot build. Entries use the CMake target/folder names under `src/games`.
 
-| Game | Snapshot download |
-| --- | --- |
-| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) |
-| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) |
+| Game | Snapshot download | Last built (UTC) |
+| --- | --- | --- |
+| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | ![Total Eclipse build time](https://pmnoxx.github.io/renodx-neo/build-total-eclipse.svg) |
+| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | ![NieR:Automata build time](https://pmnoxx.github.io/renodx-neo/build-nier-automata.svg) |
+
+Build times update automatically after each successful snapshot build and GitHub Pages deployment. Times are shown in UTC; badge images may take a few minutes to refresh.
 
 Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). For other RenoDX mods, see the upstream [Mods page](https://github.com/clshortfuse/renodx/wiki/Mods).
 
