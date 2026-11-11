@@ -42,6 +42,7 @@ uintptr_t game_end = 0;
 std::atomic_uint32_t hidden_hdr_queries = 0;
 HMODULE addon_module = nullptr;
 std::string addon_version;
+std::atomic_bool hdr_restart_required = false;
 bool disable_camera_motion_blur = false;
 ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
 
@@ -127,6 +128,7 @@ void OnInitDevice(reshade::api::device* device) {
         entries.append(addon_file);
         entries.push_back('\0');
         reshade::set_config_value(nullptr, "ADDON", "LoadFromDllMain", entries.c_str(), entries.size());
+        hdr_restart_required.store(hidden_hdr_queries.load(std::memory_order_relaxed) == 0);
         reshade::log::message(reshade::log::level::warning,
                               "NieR:Automata: configured automatic early loading. Restart the game to activate native HDR suppression.");
       }
@@ -159,13 +161,37 @@ void OnInitDevice(reshade::api::device* device) {
   }
 }
 
+void OnRestartWarning(reshade::api::effect_runtime* runtime) {
+  static bool warning_shown = false;
+  if (!warning_shown && hdr_restart_required.load()) {
+    ImGui::OpenPopup("Restart required for HDR###nier_hdr_restart");
+    warning_shown = true;
+  }
+  ImGui::SetNextWindowSize(ImVec2(520.f, 0.f), ImGuiCond_Appearing);
+  if (ImGui::BeginPopupModal("Restart required for HDR###nier_hdr_restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::GetIO().MouseDrawCursor = true;
+    runtime->block_input_next_frame();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.25f, 0.25f, 1.f));
+    ImGui::TextWrapped("Your game needs to be restarted for HDR to work correctly.");
+    ImGui::PopStyleColor();
+    ImGui::TextWrapped("Due to ReShade's addon loading limitations, native HDR detection happened before this addon loaded. Early loading is now configured automatically.");
+    ImGui::TextWrapped("Fully close the game and launch it again. No manual configuration is needed.");
+    if (ImGui::Button("Understood")) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
 void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("NieR:Automata HDR development");
   ImGui::Text("Version: %s", (addon_version.empty() ? "unknown" : addon_version.c_str()));
   ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
   ImGui::Text("Hidden native HDR queries: %u", hidden_hdr_queries.load(std::memory_order_relaxed));
   if (hidden_hdr_queries.load(std::memory_order_relaxed) == 0) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.25f, 0.25f, 1.f));
     ImGui::TextWrapped("Restart the game to activate native HDR suppression. Early loading is configured automatically.");
+    ImGui::PopStyleColor();
   }
   if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::SliderFloat("Peak brightness (nits)", &shader_injection.peak_white_nits, 203.f, 4000.f)) {
@@ -295,6 +321,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       };
       renodx::mods::swapchain::SetUseHDR10(true);
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
+      reshade::register_event<reshade::addon_event::reshade_overlay>(OnRestartWarning);
       reshade::register_overlay("NieR:Automata", OnOverlay);
       break;
     }
@@ -313,6 +340,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
       }
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
+      reshade::unregister_event<reshade::addon_event::reshade_overlay>(OnRestartWarning);
       reshade::unregister_overlay("NieR:Automata", OnOverlay);
       reshade::unregister_addon(module);
       break;
