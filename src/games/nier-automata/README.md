@@ -5,8 +5,25 @@ Include both lines in bug-report screenshots to identify the installed build.
 The file version is generated during CMake configuration in UTC; the compile time
 uses the build machine's local timezone.
 
-Native HDR suppression uses a version-checked memory patch plus a game-caller
-`IDXGIOutput6::GetDesc1` hook. On the supported Steam executable, both install
+The `Native HDR override` control offers three startup modes:
+
+| Mode | Game decision / output descriptor |
+| --- | --- |
+| Game default | Leave both unchanged; follow the game's display detection. |
+| Force native HDR off | Force the SDR game path and BT.709/8-bit descriptor. |
+| Force native HDR on (default) | Force the native HDR game path and HDR10/PQ/10-bit descriptor. |
+
+The setting is saved as `NativeHDROverride` under `[renodx-nier_automata]`: 0 for
+game default, 1 for force off, 2 for force on. Missing or invalid values use 2.
+The overlay shows the active mode separately from a saved selection for the next
+launch. Changing modes takes effect next launch because the game initializes
+different shaders and buffers for each rendering path. This setting controls
+the game's native HDR, independently of RenoDX's HDR10 output. The previous
+validated custom RenoDX pipeline used native HDR off; forced native HDR on
+remains experimental and needs separate visual/output validation.
+
+Forced modes use a version-checked memory patch plus a game-caller
+`IDXGIOutput6::GetDesc1` hook. On the supported Steam executable, both initialize
 during D3D11 device initialization, before the game makes its native HDR decision.
 No early-load configuration or first-launch restart is required. The addon no
 longer writes `ADDON.LoadFromDllMain`, and the restart popup/countdown is removed.
@@ -46,15 +63,15 @@ a normalized simulation step near 0.5 (8.333 ms times 0.06 ticks/ms), and the
 user confirmed unlocking worked after increasing the display refresh rate.
 Full gameplay progression and every timing-sensitive sequence remain unverified.
 
-Experimental D3D11/x64 development addon. Successful `IDXGIOutput6::GetDesc1` queries originating inside the game executable receive SDR BT.709 color space and eight bits per color. Calls from RenoDX, DevKit and other modules retain the real descriptor. Windows HDR stays enabled independently of this game setting.
+Experimental D3D11/x64 development addon. Successful `IDXGIOutput6::GetDesc1` queries originating inside the game executable follow the selected startup override. Game default passes through unchanged. Force off reports SDR BT.709/eight bits; force on reports HDR10/PQ/ten bits. Calls from RenoDX, DevKit and other modules retain the real descriptor. The mod does not change Windows HDR settings.
 
-Native HDR suppression is always enabled. The memory patch replaces the game's decision block at RVA `25E88E`, forcing both its native HDR flag and saved output color space to SDR before buffer formats and rendering shaders are selected. It checks PE timestamp `6AC89519`, image size `018BE000`, the entire original 25-byte decision block and the adjacent GetDesc1 call. Unknown or conflicting builds are left unpatched and reported as errors. The patch changes process memory only and remains until process exit; it contains no addon callback addresses. It also applies to later executions of the same display initialization path.
+For forced modes, the memory patch replaces the game's decision block at RVA `25E88E`, setting both its native HDR flag and saved output color space before buffer formats and rendering shaders are selected: 0/0 for force off, 1/12 for force on. Game default leaves the code unchanged. The patch checks PE timestamp `6AC89519`, image size `018BE000`, the entire original 25-byte decision block and the adjacent GetDesc1 call. Unknown or conflicting builds are left unpatched and reported as errors. The patch changes process memory only and remains until process exit; it contains no addon callback addresses. It also applies to later executions of the same display initialization path. Native HDR on requires the game's IDXGIOutput6 path and output support for HDR10 signaling.
 
 The output hook remains separate from the memory patch. The addon intercepts the executable's named `CreateDXGIFactory` import while preserving ReShade's redirected entry point. Normal device-time loading also obtains a factory/output immediately, so installation does not depend on observing the game's earlier factory creation. The descriptor hook uses the primary adapter/output implementation; other implementations remain untested. The overlay shows the count of intercepted game queries, which alone does not establish the native HDR state. Factory/output-hook installation failures are logged independently of memory-patch status. Failed/null descriptor queries retain the real API result. The game's DisplayConfigGetDeviceInfo calls retrieve display names, rather than HDR enablement.
 
 ## Custom RenoDX HDR
 
-The addon always upgrades the SDR rendering path to HDR10 and suppresses the game's native HDR detection. There are no `HideNativeHDR` or `EnableHDR` config options; obsolete entries are ignored. Brightness, tone mapping, grading, FPS, and motion-blur controls remain configurable.
+RenoDX HDR10 output is always enabled. Native HDR detection follows `NativeHDROverride`; choose Force native HDR off for the previously validated custom SDR-to-HDR rendering path. There are no `HideNativeHDR` or `EnableHDR` config options; obsolete entries are ignored. Brightness, tone mapping, grading, FPS, and motion-blur controls remain configurable.
 
 - `0x7FB4ADA1`: capture scene + bloom, vignette and exposure before the rational SDR curve. Preserve original strip-LUT addressing, LUT blend and brightness as a decoded SDR grade reference. Forward-map the real upstream scene with three-input `ToneMapPass`, using the rational curve as the neutral reference. Write extended sRGB-shaped values for later game composition.
 - `0x644BD65C`: preserve the reconstructed SDR CAS algorithm, removing its final saturate. Above-white neighborhoods naturally disable its SDR sharpening weight; highlights pass through without clipping. This manually reconstructed shader compiles but is not binary-equivalent to the original.
@@ -74,7 +91,9 @@ The original tonemap reconstruction was visually checked on the title screen but
 
 ### Startup verification
 
-With Windows HDR enabled and no early-load entry, launch once and confirm both `native HDR decision memory patch installed` and output-hook installation in the log. Verify the main display's native HDR flag and saved color space are zero, native HDR dispatches are absent, and analyzer luminance extends above SDR white. No restart popup should appear, and `ADDON.LoadFromDllMain` must remain unchanged. Repeat with an empty INI and with existing unrelated early-load entries; verify display changes/MSAA rebuilds stay SDR internally. Unsupported/conflicting executable anchors must report a patch failure without writing those bytes. Legacy zero-valued `HideNativeHDR`/`EnableHDR` keys must not disable either behavior. Without saved FPS settings, the overlay must show Unlock FPS enabled at 60; saved FPS choices must still apply. The decision bytes were checked against the supported executable and the replacement machine code was executed in an isolated buffer for six input color spaces, with surrounding bytes preserved. First-launch game runtime validation of this memory-patch startup path remains pending; earlier runtime evidence above used the descriptor hook with early loading.
+With an empty INI and no early-load entry, the overlay must show Force native HDR on active, and the log must report its force-on patch plus output-hook installation. Confirm native display state fields are 1/12. Select Force native HDR off: the active mode must stay unchanged that session; after relaunch, verify fields 0/0, SDR game shaders, and no native HDR dispatches. Select Game default and relaunch: verify original decision bytes remain unchanged, descriptor calls pass through without incrementing the override counter, and native HDR follows actual display detection. Test Windows HDR enabled/disabled and display/MSAA rebuilds in each mode. The forced-on path needs visual/output verification independently of the custom native-HDR-off path.
+
+No first-launch restart popup should appear, and `ADDON.LoadFromDllMain` must remain unchanged. Repeat with unrelated early-load entries and invalid `NativeHDROverride` values (fallback: force on). Unsupported/conflicting executable anchors must report a forced-mode patch failure without writing those bytes. Legacy `HideNativeHDR`/`EnableHDR` keys remain ignored. FPS defaults remain enabled at 60, with saved FPS choices respected. Both replacement machine-code sequences and the original were executed in isolated buffers across six input color spaces, verifying the two state fields and surrounding guard bytes. In-game runtime validation of these startup modes remains pending; earlier visual evidence used native HDR off with the descriptor hook and early loading.
 
 ## Camera motion blur
 

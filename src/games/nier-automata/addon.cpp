@@ -39,10 +39,13 @@ GetOutputDesc original_get_output_desc = nullptr;
 renodx::utils::vtable::Slot<GetOutputDesc> output_desc_hook;
 uintptr_t game_begin = 0;
 uintptr_t game_end = 0;
-std::atomic_uint32_t hidden_hdr_queries = 0;
+std::atomic_uint32_t overridden_hdr_queries = 0;
 HMODULE addon_module = nullptr;
 std::string addon_version;
-enum class NativeHdrPatchStatus { PENDING, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
+enum class NativeHdrOverride : uint32_t { GAME_DEFAULT, FORCE_OFF, FORCE_ON };
+std::atomic<NativeHdrOverride> native_hdr_override = NativeHdrOverride::GAME_DEFAULT;
+int native_hdr_override_selection = static_cast<int>(NativeHdrOverride::FORCE_ON);
+enum class NativeHdrPatchStatus { PENDING, UNMODIFIED, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
 std::atomic<NativeHdrPatchStatus> native_hdr_patch_status = NativeHdrPatchStatus::PENDING;
 bool disable_camera_motion_blur = false;
 ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
@@ -64,12 +67,18 @@ renodx::mods::shader::CustomShaders custom_shaders = {
 HRESULT STDMETHODCALLTYPE OnGetOutputDesc(IDXGIOutput6* output, DXGI_OUTPUT_DESC1* desc) {
   const uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
   const HRESULT result = original_get_output_desc(output, desc);
-  if (SUCCEEDED(result) && desc != nullptr && caller >= game_begin && caller < game_end) {
-    desc->ColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
-    desc->BitsPerColor = 8;
-    if (hidden_hdr_queries.fetch_add(1, std::memory_order_relaxed) == 0) {
+  const auto mode = native_hdr_override.load();
+  if (SUCCEEDED(result) && desc != nullptr && caller >= game_begin && caller < game_end
+      && mode != NativeHdrOverride::GAME_DEFAULT) {
+    desc->ColorSpace = (mode == NativeHdrOverride::FORCE_ON
+                           ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+                           : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+    desc->BitsPerColor = (mode == NativeHdrOverride::FORCE_ON ? 10 : 8);
+    if (overridden_hdr_queries.fetch_add(1, std::memory_order_relaxed) == 0) {
       reshade::log::message(reshade::log::level::info,
-                            "NieR:Automata: hid native HDR in game IDXGIOutput6::GetDesc1 query.");
+                            (mode == NativeHdrOverride::FORCE_ON
+                                 ? "NieR:Automata: forced native HDR on in game IDXGIOutput6::GetDesc1 query."
+                                 : "NieR:Automata: forced native HDR off in game IDXGIOutput6::GetDesc1 query."));
     }
   }
   return result;
@@ -112,48 +121,70 @@ void OnInitDevice(reshade::api::device* device) {
   }
   if (device->get_api() == reshade::api::device_api::d3d11) {
     if (native_hdr_patch_status.load() == NativeHdrPatchStatus::PENDING) {
-      // ReShade invokes init_device inside D3D11CreateDevice, before the game
-      // returns to display setup and executes this GetDesc1 decision block.
-      // Clear BOTH the HDR flag and saved color space before formats/shaders
-      // are selected, including when a real DXGI output still reports HDR10.
-      constexpr uintptr_t HDR_DECISION_RVA = 0x25E88E;
-      constexpr std::array<uint8_t, 25> ORIGINAL_HDR_DECISION = {
-          0x8B, 0x4D, 0x34, 0x89, 0x4F, 0x70, 0x83, 0xF9, 0x0C, 0x75, 0x09,
-          0xC7, 0x47, 0x18, 0x01, 0x00, 0x00, 0x00, 0xEB, 0x05, 0x33, 0xC0, 0x89, 0x47, 0x18};
-      // xor ecx,ecx; mov [rdi+70h],ecx; mov [rdi+18h],ecx; nop padding.
-      constexpr std::array<uint8_t, 25> SDR_HDR_DECISION = {
-          0x33, 0xC9, 0x89, 0x4F, 0x70, 0x89, 0x4F, 0x18,
-          0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-          0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
-      constexpr std::array<uint8_t, 7> GET_DESC_CALL = {0x41, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00};
-      const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
-      const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);
-      auto* decision = reinterpret_cast<void*>(game_begin + HDR_DECISION_RVA);
-      if (nt->FileHeader.TimeDateStamp != 0x6AC89519 || nt->OptionalHeader.SizeOfImage != 0x18BE000
-          || std::memcmp(decision, ORIGINAL_HDR_DECISION.data(), ORIGINAL_HDR_DECISION.size()) != 0
-          || std::memcmp(reinterpret_cast<void*>(game_begin + 0x25E887), GET_DESC_CALL.data(), GET_DESC_CALL.size()) != 0) {
-        native_hdr_patch_status.store(NativeHdrPatchStatus::UNSUPPORTED);
-        reshade::log::message(reshade::log::level::error,
-                              "NieR:Automata HDR: unsupported executable or conflicting HDR patch; memory patch not installed.");
+      uint32_t mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_ON);
+      reshade::get_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", mode);
+      if (mode > static_cast<uint32_t>(NativeHdrOverride::FORCE_ON)) {
+        mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_ON);
+      }
+      native_hdr_override_selection = static_cast<int>(mode);
+      native_hdr_override.store(static_cast<NativeHdrOverride>(mode));
+      if (mode == static_cast<uint32_t>(NativeHdrOverride::GAME_DEFAULT)) {
+        native_hdr_patch_status.store(NativeHdrPatchStatus::UNMODIFIED);
+        reshade::log::message(reshade::log::level::info, "NieR:Automata HDR: using the game's native HDR decision.");
       } else {
-        DWORD old_protection = 0;
-        if (VirtualProtect(decision, SDR_HDR_DECISION.size(), PAGE_EXECUTE_READWRITE, &old_protection)) {
-          std::memcpy(decision, SDR_HDR_DECISION.data(), SDR_HDR_DECISION.size());
-          if (!FlushInstructionCache(GetCurrentProcess(), decision, SDR_HDR_DECISION.size())) {
-            reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: instruction cache flush failed.");
-          }
-          DWORD ignored = 0;
-          if (!VirtualProtect(decision, SDR_HDR_DECISION.size(), old_protection, &ignored)) {
-            reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: could not restore code page protection.");
-          }
-          // The patch contains no addon pointers and is kept for process lifetime.
-          // Restoring it during unload would re-enable native HDR on display rebuild.
-          native_hdr_patch_status.store(NativeHdrPatchStatus::INSTALLED);
-          reshade::log::message(reshade::log::level::info,
-                                "NieR:Automata HDR: native HDR decision memory patch installed (Steam build 6AC89519).");
+        // ReShade invokes init_device inside D3D11CreateDevice, before the game
+        // returns to display setup and executes this GetDesc1 decision block.
+        // Override BOTH the HDR flag and saved color space before formats/shaders
+        // are selected, independently of the real output's HDR state.
+        constexpr uintptr_t HDR_DECISION_RVA = 0x25E88E;
+        constexpr std::array<uint8_t, 25> ORIGINAL_HDR_DECISION = {
+            0x8B, 0x4D, 0x34, 0x89, 0x4F, 0x70, 0x83, 0xF9, 0x0C, 0x75, 0x09,
+            0xC7, 0x47, 0x18, 0x01, 0x00, 0x00, 0x00, 0xEB, 0x05, 0x33, 0xC0, 0x89, 0x47, 0x18};
+        // xor ecx,ecx; mov [rdi+70h],ecx; mov [rdi+18h],ecx; nop padding.
+        constexpr std::array<uint8_t, 25> SDR_HDR_DECISION = {
+            0x33, 0xC9, 0x89, 0x4F, 0x70, 0x89, 0x4F, 0x18,
+            0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+            0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+        // mov ecx,12; mov [rdi+70h],ecx; mov dword [rdi+18h],1; nop padding.
+        constexpr std::array<uint8_t, 25> HDR_HDR_DECISION = {
+            0xB9, 0x0C, 0x00, 0x00, 0x00, 0x89, 0x4F, 0x70,
+            0xC7, 0x47, 0x18, 0x01, 0x00, 0x00, 0x00,
+            0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+        const auto& decision_bytes = (mode == static_cast<uint32_t>(NativeHdrOverride::FORCE_ON)
+                                          ? HDR_HDR_DECISION
+                                          : SDR_HDR_DECISION);
+        constexpr std::array<uint8_t, 7> GET_DESC_CALL = {0x41, 0xFF, 0x90, 0xD8, 0x00, 0x00, 0x00};
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);
+        auto* decision = reinterpret_cast<void*>(game_begin + HDR_DECISION_RVA);
+        if (nt->FileHeader.TimeDateStamp != 0x6AC89519 || nt->OptionalHeader.SizeOfImage != 0x18BE000
+            || std::memcmp(decision, ORIGINAL_HDR_DECISION.data(), ORIGINAL_HDR_DECISION.size()) != 0
+            || std::memcmp(reinterpret_cast<void*>(game_begin + 0x25E887), GET_DESC_CALL.data(), GET_DESC_CALL.size()) != 0) {
+          native_hdr_patch_status.store(NativeHdrPatchStatus::UNSUPPORTED);
+          reshade::log::message(reshade::log::level::error,
+                                "NieR:Automata HDR: unsupported executable or conflicting HDR patch; memory patch not installed.");
         } else {
-          native_hdr_patch_status.store(NativeHdrPatchStatus::PROTECTION_FAILED);
-          reshade::log::message(reshade::log::level::error, "NieR:Automata HDR: cannot write native HDR decision code.");
+          DWORD old_protection = 0;
+          if (VirtualProtect(decision, decision_bytes.size(), PAGE_EXECUTE_READWRITE, &old_protection)) {
+            std::memcpy(decision, decision_bytes.data(), decision_bytes.size());
+            if (!FlushInstructionCache(GetCurrentProcess(), decision, decision_bytes.size())) {
+              reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: instruction cache flush failed.");
+            }
+            DWORD ignored = 0;
+            if (!VirtualProtect(decision, decision_bytes.size(), old_protection, &ignored)) {
+              reshade::log::message(reshade::log::level::warning, "NieR:Automata HDR: could not restore code page protection.");
+            }
+            // The patch contains no addon pointers and is kept for process lifetime.
+            // Restoring it during unload would change modes on display rebuild.
+            native_hdr_patch_status.store(NativeHdrPatchStatus::INSTALLED);
+            reshade::log::message(reshade::log::level::info,
+                                  (mode == static_cast<uint32_t>(NativeHdrOverride::FORCE_ON)
+                                       ? "NieR:Automata HDR: native HDR decision memory patch installed: force on (Steam build 6AC89519)."
+                                       : "NieR:Automata HDR: native HDR decision memory patch installed: force off (Steam build 6AC89519)."));
+          } else {
+            native_hdr_patch_status.store(NativeHdrPatchStatus::PROTECTION_FAILED);
+            reshade::log::message(reshade::log::level::error, "NieR:Automata HDR: cannot write native HDR decision code.");
+          }
         }
       }
     }
@@ -185,9 +216,22 @@ void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("NieR:Automata HDR development");
   ImGui::Text("Version: %s", (addon_version.empty() ? "unknown" : addon_version.c_str()));
   ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
-  ImGui::Text("Hidden native HDR queries: %u", hidden_hdr_queries.load(std::memory_order_relaxed));
+  static constexpr const char* NATIVE_HDR_MODES[] = {"Game default", "Force native HDR off", "Force native HDR on"};
+  if (ImGui::Combo("Native HDR override", &native_hdr_override_selection, NATIVE_HDR_MODES, IM_ARRAYSIZE(NATIVE_HDR_MODES))) {
+    reshade::set_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", uint32_t(native_hdr_override_selection));
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Game default follows display detection. Off selects the SDR game path for RenoDX. On selects the game's native HDR renderer.");
+  }
+  ImGui::Text("Active native HDR mode: %s", NATIVE_HDR_MODES[static_cast<uint32_t>(native_hdr_override.load())]);
+  if (native_hdr_override_selection != static_cast<int>(native_hdr_override.load())) {
+    ImGui::TextWrapped("Saved for next launch. Native HDR shaders and buffers are selected during game startup.");
+  }
+  ImGui::Text("Overridden native HDR queries: %u", overridden_hdr_queries.load(std::memory_order_relaxed));
   if (native_hdr_patch_status.load() == NativeHdrPatchStatus::INSTALLED) {
     ImGui::TextUnformatted("Native HDR memory patch: installed");
+  } else if (native_hdr_patch_status.load() == NativeHdrPatchStatus::UNMODIFIED) {
+    ImGui::TextUnformatted("Native HDR memory patch: not applied (game default)");
   } else {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.25f, 0.25f, 1.f));
     ImGui::TextWrapped("Native HDR memory patch unavailable. See ReShade.log for executable or patch errors.");
