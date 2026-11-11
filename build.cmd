@@ -1,1 +1,3 @@
-cmake --build build --config Release --target nier-automata -j 18
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-games.ps1" %*
+exit /b %errorlevel%

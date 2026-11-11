@@ -13,11 +13,33 @@ RenoDX, short for "Renovation Engine for DirectX Games", is a toolset to mod gam
 
 # Mods
 
-* See [Mods page](https://github.com/clshortfuse/renodx/wiki/Mods)
+The games maintained in this fork are listed in [games.json](./games.json). This list controls both `build.cmd` and the snapshot build. Entries use the CMake target/folder names under `src/games`.
+
+| Game | Snapshot download |
+| --- | --- |
+| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) |
+| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) |
+
+Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). For other RenoDX mods, see the upstream [Mods page](https://github.com/clshortfuse/renodx/wiki/Mods).
+
+# Building these mods
+
+After configuring the Clang x64 build in a Visual Studio developer shell:
+
+```bat
+cmake --preset clang-x64
+.\build.cmd
+```
+
+`build.cmd` builds only the targets in [games.json](./games.json), plus their required build dependencies. It defaults to Release with 18 parallel jobs, works from any current directory, and accepts PowerShell script options:
+
+```bat
+.\build.cmd -Configuration Debug -Parallel 8
+.\build.cmd -DryRun
+```
+
+Add another game's existing target name to `games.json` to include it in local builds and snapshots. The snapshot currently builds and packages x64 addons and their debug symbols; games added to the list must support x64.
 
 # Utilities
 
-* [renodx-fpslimiter.addon64](https://clshortfuse.github.io/renodx/renodx-fpslimiter.addon64) &ndash; FPS Limiter
-* [renodx-devkit.addon64](https://clshortfuse.github.io/renodx/renodx-devkit.addon64) &ndash; Developer kit to help build addons
-* [decomp.exe](https://clshortfuse.github.io/renodx/decomp.exe) &ndash; Shader Model 6.0+ Decompiler
-
+Developer tools are available from the [upstream RenoDX snapshot](https://github.com/clshortfuse/renodx/releases/tag/snapshot).
