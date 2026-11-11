@@ -44,7 +44,7 @@ HMODULE addon_module = nullptr;
 std::string addon_version;
 enum class NativeHdrOverride : uint32_t { GAME_DEFAULT, FORCE_OFF, FORCE_ON };
 std::atomic<NativeHdrOverride> native_hdr_override = NativeHdrOverride::GAME_DEFAULT;
-int native_hdr_override_selection = static_cast<int>(NativeHdrOverride::FORCE_ON);
+int native_hdr_override_selection = static_cast<int>(NativeHdrOverride::FORCE_OFF);
 enum class NativeHdrPatchStatus { PENDING, UNMODIFIED, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
 std::atomic<NativeHdrPatchStatus> native_hdr_patch_status = NativeHdrPatchStatus::PENDING;
 bool disable_camera_motion_blur = false;
@@ -121,10 +121,10 @@ void OnInitDevice(reshade::api::device* device) {
   }
   if (device->get_api() == reshade::api::device_api::d3d11) {
     if (native_hdr_patch_status.load() == NativeHdrPatchStatus::PENDING) {
-      uint32_t mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_ON);
+      uint32_t mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_OFF);
       reshade::get_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", mode);
       if (mode > static_cast<uint32_t>(NativeHdrOverride::FORCE_ON)) {
-        mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_ON);
+        mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_OFF);
       }
       native_hdr_override_selection = static_cast<int>(mode);
       native_hdr_override.store(static_cast<NativeHdrOverride>(mode));

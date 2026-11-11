@@ -10,11 +10,11 @@ The `Native HDR override` control offers three startup modes:
 | Mode | Game decision / output descriptor |
 | --- | --- |
 | Game default | Leave both unchanged; follow the game's display detection. |
-| Force native HDR off | Force the SDR game path and BT.709/8-bit descriptor. |
-| Force native HDR on (default) | Force the native HDR game path and HDR10/PQ/10-bit descriptor. |
+| Force native HDR off (default) | Force the SDR game path and BT.709/8-bit descriptor. |
+| Force native HDR on | Force the native HDR game path and HDR10/PQ/10-bit descriptor. |
 
 The setting is saved as `NativeHDROverride` under `[renodx-nier_automata]`: 0 for
-game default, 1 for force off, 2 for force on. Missing or invalid values use 2.
+game default, 1 for force off, 2 for force on. Missing or invalid values use 1.
 The overlay shows the active mode separately from a saved selection for the next
 launch. Changing modes takes effect next launch because the game initializes
 different shaders and buffers for each rendering path. This setting controls
@@ -91,9 +91,9 @@ The original tonemap reconstruction was visually checked on the title screen but
 
 ### Startup verification
 
-With an empty INI and no early-load entry, the overlay must show Force native HDR on active, and the log must report its force-on patch plus output-hook installation. Confirm native display state fields are 1/12. Select Force native HDR off: the active mode must stay unchanged that session; after relaunch, verify fields 0/0, SDR game shaders, and no native HDR dispatches. Select Game default and relaunch: verify original decision bytes remain unchanged, descriptor calls pass through without incrementing the override counter, and native HDR follows actual display detection. Test Windows HDR enabled/disabled and display/MSAA rebuilds in each mode. The forced-on path needs visual/output verification independently of the custom native-HDR-off path.
+With an empty INI and no early-load entry, the overlay must show Force native HDR off active, and the log must report its force-off patch plus output-hook installation. Confirm native display state fields are 0/0, SDR game shaders, and no native HDR dispatches. Select Force native HDR on: the active mode must stay unchanged that session; after relaunch, verify fields 1/12 and native HDR shader selection. Select Game default and relaunch: verify original decision bytes remain unchanged, descriptor calls pass through without incrementing the override counter, and native HDR follows actual display detection. Test Windows HDR enabled/disabled and display/MSAA rebuilds in each mode. The forced-on path needs visual/output verification independently of the custom native-HDR-off path.
 
-No first-launch restart popup should appear, and `ADDON.LoadFromDllMain` must remain unchanged. Repeat with unrelated early-load entries and invalid `NativeHDROverride` values (fallback: force on). Unsupported/conflicting executable anchors must report a forced-mode patch failure without writing those bytes. Legacy `HideNativeHDR`/`EnableHDR` keys remain ignored. FPS defaults remain enabled at 60, with saved FPS choices respected. Both replacement machine-code sequences and the original were executed in isolated buffers across six input color spaces, verifying the two state fields and surrounding guard bytes. In-game runtime validation of these startup modes remains pending; earlier visual evidence used native HDR off with the descriptor hook and early loading.
+No first-launch restart popup should appear, and `ADDON.LoadFromDllMain` must remain unchanged. Repeat with unrelated early-load entries and invalid `NativeHDROverride` values (fallback: force off). Unsupported/conflicting executable anchors must report a forced-mode patch failure without writing those bytes. Legacy `HideNativeHDR`/`EnableHDR` keys remain ignored. FPS defaults remain enabled at 60, with saved FPS choices respected. Both replacement machine-code sequences and the original were executed in isolated buffers across six input color spaces, verifying the two state fields and surrounding guard bytes. In-game runtime validation of these startup modes remains pending; earlier visual evidence used native HDR off with the descriptor hook and early loading.
 
 ## Camera motion blur
 
