@@ -110,3 +110,11 @@ The **Effects** section has five checkboxes, all off by default. They apply in e
 - **Disable sharpening**: in `casshadersharpen` the output is the centre texel. In `casshaderupsampleandsharpen` the sharpening weights are zero, leaving an exactly normalized adaptive bilinear upscale.
 
 Under `NIER_VERIFY_MODE` the toggles are compile-time `false`, so the Off-mode proof against the game bytecode still covers the default settings.
+
+## LOD distance
+
+`LOD distance` (1x-20x, default 1x = vanilla) keeps full-detail models such as bushes and props out to a multiple of the game's LOD distance. Each model owns screen-size LOD thresholds (`objReadInfo.bxm` `DistRate0-3` or class defaults); the addon tracks model LOD setup/teardown (RVAs `1951B0`/`1948A0`) and divides those thresholds once per frame. Installed on first use; models loaded before then keep vanilla LODs until the area reloads. Verified in game by scaling live thresholds to 5%: bushes and a storage tank kept their full-detail meshes.
+
+## Save anywhere (testing)
+
+Off by default. Hooks the game's save permission check (RVA `9CA540`) and the `@SAVE` scenario state test (RVA `38C8C0`, only for the `@SAVE` object) so pause menu Save stays enabled where the game greys it out, without changing stored script state. Saving during scripted events or bosses can create saves that resume in a broken state; use a spare slot and back up saves. Verified in game: Save enabled in a greyed-out area, save loaded correctly (state-memory variant).

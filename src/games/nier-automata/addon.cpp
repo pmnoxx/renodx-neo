@@ -25,6 +25,8 @@
 #include "../../mods/shader.hpp"
 #include "../../mods/swapchain.hpp"
 #include "./fps_unlock.hpp"
+#include "./lod_distance.hpp"
+#include "./save_anywhere.hpp"
 #include "./shared.h"
 
 #include "../../utils/iat_hook.hpp"
@@ -229,7 +231,20 @@ void OnInitDevice(reshade::api::device* device) {
                                 : "NieR:Automata FPS: startup configuration disabled.");
     }
     nier_automata::fps_unlock::Initialize(game_begin);
+    uint32_t save_anywhere_enabled = 0;
+    reshade::get_config_value(nullptr, "renodx-nier_automata", "SaveAnywhere", save_anywhere_enabled);
+    nier_automata::save_anywhere::enabled.store(save_anywhere_enabled != 0);
+    nier_automata::save_anywhere::Initialize(game_begin);
+    float lod_distance = 1.f;
+    reshade::get_config_value(nullptr, "renodx-nier_automata", "LODDistance", lod_distance);
+    nier_automata::lod_distance::multiplier.store(std::clamp(lod_distance, 1.f, 20.f));
+    nier_automata::lod_distance::Initialize(game_begin);
   }
+}
+
+void OnPresent(reshade::api::command_queue*, reshade::api::swapchain*, const reshade::api::rect*,
+               const reshade::api::rect*, uint32_t, const reshade::api::rect*) {
+  nier_automata::lod_distance::Tick();
 }
 
 void OnOverlay(reshade::api::effect_runtime*) {
@@ -314,6 +329,8 @@ void OnOverlay(reshade::api::effect_runtime*) {
     }
   }
   nier_automata::fps_unlock::OnOverlay();
+  nier_automata::lod_distance::OnOverlay();
+  nier_automata::save_anywhere::OnOverlay();
   if (ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur)) {
     reshade::set_config_value(
         nullptr, "renodx-nier_automata", "DisableCameraMotionBlur", uint32_t(disable_camera_motion_blur));
@@ -403,6 +420,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       };
       renodx::mods::swapchain::SetUseHDR10(true);
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
+      reshade::register_event<reshade::addon_event::present>(OnPresent);
       reshade::register_overlay("NieR:Automata", OnOverlay);
       break;
     }
@@ -421,6 +439,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
       }
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
+      reshade::unregister_event<reshade::addon_event::present>(OnPresent);
       reshade::unregister_overlay("NieR:Automata", OnOverlay);
       reshade::unregister_addon(module);
       break;
