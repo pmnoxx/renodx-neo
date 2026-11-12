@@ -22,6 +22,7 @@ Default RenoDX mod behavior should be neutral: preserve the vanilla/original SDR
 | `analysis-graphing` | Creating dark-theme plots, curve comparisons, hue sweeps, gamut comparisons, LUT statistics, or image diagnostic panels. | Hand off to `hdr-test-pattern-generation` for source pattern generation and to `bt2020-png-generation` for final HDR PNG output. |
 | `hdr-test-pattern-generation` | Generating deterministic SDR/HDR ramps, charts, sweeps, color bars, checkerboards, gamut stress images, or validation sources. | Hand off to `analysis-graphing` for plotting results and to `bt2020-png-generation` for PQ PNG encoding/signaling. |
 | `bt2020-png-generation` | Producing or validating BT.2020/BT.2100 PQ PNGs, cICP chunks, ICC/cicpTag behavior, or HDR PNG artifacts from analysis data. | Hand off to `hdr-test-pattern-generation` for synthetic sources and to `analysis-graphing` for plots. |
+| `readable-shader-rewrite` | Rewriting decompiled (r0.xyzw) shaders into readable HLSL, recovering original shader names, and proving the rewrite compiles to the game's exact bytecode, including Off-mode proof for patched shaders. | Hand off to `handle-sdr-tonemap-lut` for HDR math in the rewritten shader. |
 
 ## Maintenance notes
 
