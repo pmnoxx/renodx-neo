@@ -1,5 +1,6 @@
+// Original: shader2.dat/filtershadertonemap_simple.pso - single-LUT SDR scene tone map.
 #include "./tonemap.hlsli"
-// ---- Created with 3Dmigoto v1.4.1 on Tue Nov 10 09:07:27 2026
+// Readable rewrite of the 3Dmigoto decompile; compiles to identical bytecode (verify_rewrite.py).
 
 cbuffer PSParamBuffer1 : register(b1)
 {
@@ -16,59 +17,35 @@ Texture2D<float4> g_Texture1 : register(t1);
 Texture2D<float4> g_Texture2 : register(t2);
 StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 
+float4 main(float4 position : SV_POSITION0, float2 uv : TEXCOORD0) : SV_Target0 {
+  float2 offset = uv - 0.5;
+  float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
+  float3 bloom = g_Texture2.Sample(g_Texture2Sampler_s, uv).rgb;
+  float3 scene = g_Texture0.Sample(g_Texture0Sampler_s, uv).rgb * vignette + bloom;
+  float3 exposed = scene * g_AverageBrightnessBuffer[0];
 
-// 3Dmigoto declarations
-#define cmp -
+  // Rational curve x(1 + 2x/3) / (x(1 + 2x/3) + 1); off when auto exposure is disabled.
+  float3 factor = exposed * 0.666666687 + 1.0;
+  float3 tonemapped = (exposed * factor) / (exposed * factor + 1.0);
+  float3 lut_input = saturate(g_ExposureParam.y > 0.0 ? tonemapped : scene);
+  // HDR: address the LUT with a smooth curve of the untonemapped scene instead.
+  float3 hdr_source = max(g_ExposureParam.y > 0.0 ? exposed : scene, 0.0);
+  float3 hdr_neutral = NierNeutralSDR(hdr_source);
+  if (NIER_HDR_ENABLED) lut_input = hdr_neutral;
 
-
-void main(
-  float4 v0 : SV_POSITION0,
-  float2 v1 : TEXCOORD0,
-  out float4 o0 : SV_Target0)
-{
-  float4 r0,r1,r2,r3;
-  bool hdr_enabled = shader_injection.peak_white_nits > 0.0;
-  float3 hdr_source, hdr_neutral;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
-  r0.xy = float2(-0.5,-0.5) + v1.xy;
-  r0.x = dot(r0.xy, r0.xy);
-  r0.x = sqrt(r0.x);
-  r0.x = 1 + -r0.x;
-  r0.x = saturate(r0.x / g_VignettoParam.x);
-  r0.x = log2(r0.x);
-  r0.x = g_VignettoParam.y * r0.x;
-  r0.x = exp2(r0.x);
-  r0.yzw = g_Texture2.Sample(g_Texture2Sampler_s, v1.xy).xyz;
-  r1.xyz = g_Texture0.Sample(g_Texture0Sampler_s, v1.xy).xyz;
-  r0.xyzw = r1.zzxy * r0.xxxx + r0.wwyz;
-  r1.x = g_AverageBrightnessBuffer[0].x;
-  r1.xyzw = r1.xxxx * r0.yyzw;
-  // Capture before the SDR rational curve; r1.zwy is original RGB.
-  hdr_source = max(g_ExposureParam.y > 0.0 ? r1.zwy : r0.zwy, 0.0);
-  hdr_neutral = NierNeutralSDR(hdr_source);
-  r2.xyzw = r1.yyzw * float4(0.666666687,0.666666687,0.666666687,0.666666687) + float4(1,1,1,1);
-  r3.xyzw = r2.xyzw * r1.xyzw;
-  r1.xyzw = r1.yyzw * r2.yyzw + float4(1,1,1,1);
-  r1.xyzw = r3.xyzw / r1.xyzw;
-  r2.x = cmp(0 < g_ExposureParam.y);
-  r0.xyzw = saturate(r2.xxxx ? r1.xyzw : r0.xyzw);
-  if (hdr_enabled) r0 = hdr_neutral.bbrg;
-  r1.xyw = float3(14.9998999,0.9375,0.05859375) * r0.xwz;
-  r0.x = floor(r1.x);
-  r1.x = r0.x * 0.0625 + r1.w;
-  r1.xyzw = float4(0.001953125,0.03125,0.064453125,0.03125) + r1.xyxy;
-  r0.x = r0.y * 15 + -r0.x;
-  r0.yzw = g_Texture1.Sample(g_Texture1Sampler_s, r1.zw).xyz;
-  r1.xyz = g_Texture1.Sample(g_Texture1Sampler_s, r1.xy).xyz;
-  r0.yzw = -r1.xyz + r0.yzw;
-  o0.xyz = r0.xxx * r0.yzw + r1.xyz;
-  if (hdr_enabled) {
-    // LUT builder 89CEEF9A folds sRGB encoding and brightness into this LUT.
-    o0.xyz = renodx::draw::RenderIntermediatePass(
-        renodx::draw::ToneMapPass(hdr_source, renodx::color::srgb::DecodeSafe(o0.xyz), hdr_neutral));
+  // 16x16x16 LUT unwrapped to a 256x16 strip; blue picks the slice. The LUT
+  // (tonemaplut_sdr.pso) already contains sRGB encoding and brightness.
+  float blue_slice = floor(lut_input.b * 14.9998999);
+  float blend = lut_input.b * 15 - blue_slice;
+  float2 lut_base = float2(blue_slice * 0.0625 + lut_input.r * 0.05859375, lut_input.g * 0.9375);
+  float3 lut_lower = g_Texture1.Sample(g_Texture1Sampler_s, lut_base + float2(0.001953125, 0.03125)).rgb;
+  float3 lut_upper = g_Texture1.Sample(g_Texture1Sampler_s, lut_base + float2(0.064453125, 0.03125)).rgb;
+  float3 graded = blend * (lut_upper - lut_lower) + lut_lower;
+  if (NIER_HDR_ENABLED) {
+    graded = renodx::draw::RenderIntermediatePass(
+        renodx::draw::ToneMapPass(hdr_source, renodx::color::srgb::DecodeSafe(graded), hdr_neutral));
+  } else if (NIER_TONE_MAP_VANILLA) {
+    graded = NierVanillaIntermediate(graded);
   }
-  o0.w = 0;
-  return;
+  return float4(graded, 0);
 }

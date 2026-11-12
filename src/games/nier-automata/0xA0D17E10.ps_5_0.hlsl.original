@@ -1,4 +1,5 @@
-// ---- Created with 3Dmigoto v1.4.1 on Tue Nov 10 09:07:27 2026
+// Original: shader2.dat/filtershadertonemap_simple.pso - single-LUT SDR scene tone map.
+// Readable rewrite of the 3Dmigoto decompile; compiles to identical bytecode (verify_rewrite.py).
 
 cbuffer PSParamBuffer1 : register(b1)
 {
@@ -15,48 +16,24 @@ Texture2D<float4> g_Texture1 : register(t1);
 Texture2D<float4> g_Texture2 : register(t2);
 StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 
+float4 main(float4 position : SV_POSITION0, float2 uv : TEXCOORD0) : SV_Target0 {
+  float2 offset = uv - 0.5;
+  float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
+  float3 bloom = g_Texture2.Sample(g_Texture2Sampler_s, uv).rgb;
+  float3 scene = g_Texture0.Sample(g_Texture0Sampler_s, uv).rgb * vignette + bloom;
+  float3 exposed = scene * g_AverageBrightnessBuffer[0];
 
-// 3Dmigoto declarations
-#define cmp -
+  // Rational curve x(1 + 2x/3) / (x(1 + 2x/3) + 1); off when auto exposure is disabled.
+  float3 factor = exposed * 0.666666687 + 1.0;
+  float3 tonemapped = (exposed * factor) / (exposed * factor + 1.0);
+  float3 lut_input = saturate(g_ExposureParam.y > 0.0 ? tonemapped : scene);
 
-
-void main(
-  float4 v0 : SV_POSITION0,
-  float2 v1 : TEXCOORD0,
-  out float4 o0 : SV_Target0)
-{
-  float4 r0,r1,r2,r3;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
-  r0.xy = float2(-0.5,-0.5) + v1.xy;
-  r0.x = dot(r0.xy, r0.xy);
-  r0.x = sqrt(r0.x);
-  r0.x = 1 + -r0.x;
-  r0.x = saturate(r0.x / g_VignettoParam.x);
-  r0.x = log2(r0.x);
-  r0.x = g_VignettoParam.y * r0.x;
-  r0.x = exp2(r0.x);
-  r0.yzw = g_Texture2.Sample(g_Texture2Sampler_s, v1.xy).xyz;
-  r1.xyz = g_Texture0.Sample(g_Texture0Sampler_s, v1.xy).xyz;
-  r0.xyzw = r1.zzxy * r0.xxxx + r0.wwyz;
-  r1.x = g_AverageBrightnessBuffer[0].x;
-  r1.xyzw = r1.xxxx * r0.yyzw;
-  r2.xyzw = r1.yyzw * float4(0.666666687,0.666666687,0.666666687,0.666666687) + float4(1,1,1,1);
-  r3.xyzw = r2.xyzw * r1.xyzw;
-  r1.xyzw = r1.yyzw * r2.yyzw + float4(1,1,1,1);
-  r1.xyzw = r3.xyzw / r1.xyzw;
-  r2.x = cmp(0 < g_ExposureParam.y);
-  r0.xyzw = saturate(r2.xxxx ? r1.xyzw : r0.xyzw);
-  r1.xyw = float3(14.9998999,0.9375,0.05859375) * r0.xwz;
-  r0.x = floor(r1.x);
-  r1.x = r0.x * 0.0625 + r1.w;
-  r1.xyzw = float4(0.001953125,0.03125,0.064453125,0.03125) + r1.xyxy;
-  r0.x = r0.y * 15 + -r0.x;
-  r0.yzw = g_Texture1.Sample(g_Texture1Sampler_s, r1.zw).xyz;
-  r1.xyz = g_Texture1.Sample(g_Texture1Sampler_s, r1.xy).xyz;
-  r0.yzw = -r1.xyz + r0.yzw;
-  o0.xyz = r0.xxx * r0.yzw + r1.xyz;
-  o0.w = 0;
-  return;
+  // 16x16x16 LUT unwrapped to a 256x16 strip; blue picks the slice. The LUT
+  // (tonemaplut_sdr.pso) already contains sRGB encoding and brightness.
+  float blue_slice = floor(lut_input.b * 14.9998999);
+  float blend = lut_input.b * 15 - blue_slice;
+  float2 lut_base = float2(blue_slice * 0.0625 + lut_input.r * 0.05859375, lut_input.g * 0.9375);
+  float3 lut_lower = g_Texture1.Sample(g_Texture1Sampler_s, lut_base + float2(0.001953125, 0.03125)).rgb;
+  float3 lut_upper = g_Texture1.Sample(g_Texture1Sampler_s, lut_base + float2(0.064453125, 0.03125)).rgb;
+  return float4(blend * (lut_upper - lut_lower) + lut_lower, 0);
 }

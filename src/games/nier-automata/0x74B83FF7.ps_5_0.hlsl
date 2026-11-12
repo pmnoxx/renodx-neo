@@ -1,5 +1,6 @@
+// Original: shader2.dat/filtershadertonemaphdrwin.pso - native HDR renderer (Windows) scene tone map.
 #include "./tonemap.hlsli"
-// ---- Created with 3Dmigoto v1.4.1 on Tue Nov 10 09:07:30 2026
+// Readable rewrite of the 3Dmigoto decompile; compiles to the game bytecode (verify_rewrite.py).
 
 cbuffer PSParamBuffer1 : register(b1)
 {
@@ -16,70 +17,43 @@ Texture2D<float4> g_Texture2 : register(t2);
 Texture2D<float4> g_Texture3 : register(t3);
 StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 
+float4 main(float4 position : SV_POSITION0, float2 uv : TEXCOORD0) : SV_Target0 {
+  float2 offset = uv - 0.5;
+  float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
+  float3 bloom = g_Texture2.Sample(g_Texture2Sampler_s, uv).rgb;
+  float3 scene = g_Texture0.Sample(g_Texture0Sampler_s, uv).rgb * vignette + bloom;
+  float3 exposed = scene * g_AverageBrightnessBuffer[0];
 
-// 3Dmigoto declarations
-#define cmp -
+  // Rational curve x(1 + 2x/3) / (x(1 + 2x/3) + 1); off when auto exposure is disabled.
+  float3 factor = exposed * 0.666666687 + 1.0;
+  float3 tonemapped = (exposed * factor) / (exposed * factor + 1.0);
+  float3 mapped = g_ExposureParam.y > 0.0 ? tonemapped : scene;
+  // Keep 20% of the unmapped scene.
+  float3 mixed = (scene - mapped) * 0.2 + mapped;
+  // HDR: the same 20% mix of the untonemapped scene, through a smooth curve for the LUT.
+  float3 hdr_source = max(g_ExposureParam.y > 0.0 ? lerp(exposed, scene, 0.2) : scene, 0.0);
+  float3 hdr_neutral = NierNeutralSDR(hdr_source);
+  float3 luma_source = mixed;
+  if (NIER_HDR_ENABLED) mixed = hdr_neutral;
+  float3 lut_input = saturate(mixed);
 
+  // 16x16x16 LUT (tonemaplut_hdr.pso) unwrapped to a 256x16 strip; blue picks the slice.
+  float blue_slice = floor(lut_input.b * 14.9998999);
+  float blend = lut_input.b * 15 - blue_slice;
+  float2 lut_base = float2(blue_slice * 0.0625 + lut_input.r * 0.05859375, lut_input.g * 0.9375);
+  float3 lut_lower = g_Texture3.Sample(g_Texture3Sampler_s, lut_base + float2(0.001953125, 0.03125)).rgb;
+  float3 lut_upper = g_Texture3.Sample(g_Texture3Sampler_s, lut_base + float2(0.064453125, 0.03125)).rgb;
+  float3 graded = blend * (lut_upper - lut_lower) + lut_lower;
 
-void main(
-  float4 v0 : SV_POSITION0,
-  float2 v1 : TEXCOORD0,
-  out float4 o0 : SV_Target0)
-{
-  float4 r0,r1,r2,r3;
-  bool hdr_enabled = shader_injection.peak_white_nits > 0.0;
-  float3 hdr_source, hdr_neutral, mask_source;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
-  r0.xy = float2(-0.5,-0.5) + v1.xy;
-  r0.x = dot(r0.xy, r0.xy);
-  r0.x = sqrt(r0.x);
-  r0.x = 1 + -r0.x;
-  r0.x = saturate(r0.x / g_VignettoParam.x);
-  r0.x = log2(r0.x);
-  r0.x = g_VignettoParam.y * r0.x;
-  r0.x = exp2(r0.x);
-  r0.yzw = g_Texture2.Sample(g_Texture2Sampler_s, v1.xy).xyz;
-  r1.xyz = g_Texture0.Sample(g_Texture0Sampler_s, v1.xy).xyz;
-  r0.xyz = r1.xyz * r0.xxx + r0.yzw;
-  r0.w = g_AverageBrightnessBuffer[0].x;
-  r1.xyz = r0.xyz * r0.www;
-  // The native HDR variants mix 20% unexposed scene into the mapped path.
-  hdr_source = max(g_ExposureParam.y > 0.0 ? lerp(r1.xyz, r0.xyz, 0.2) : r0.xyz, 0.0);
-  hdr_neutral = NierNeutralSDR(hdr_source);
-  r2.xyz = r1.xyz * float3(0.666666687,0.666666687,0.666666687) + float3(1,1,1);
-  r3.xyz = r2.xyz * r1.xyz;
-  r1.xyz = r1.xyz * r2.xyz + float3(1,1,1);
-  r1.xyz = r3.xyz / r1.xyz;
-  r0.w = cmp(0 < g_ExposureParam.y);
-  r1.xyz = r0.www ? r1.xyz : r0.xyz;
-  r0.xyz = -r1.xyz + r0.xyz;
-  r0.xyz = r0.xyz * float3(0.200000003,0.200000003,0.200000003) + r1.xyz;
-  mask_source = r0.xyz;
-  if (hdr_enabled) r0.xyz = hdr_neutral;
-  r1.xyzw = saturate(r0.zzxy);
-  r2.xyw = float3(14.9998999,0.9375,0.05859375) * r1.xwz;
-  r0.w = floor(r2.x);
-  r2.x = r0.w * 0.0625 + r2.w;
-  r2.xyzw = float4(0.001953125,0.03125,0.064453125,0.03125) + r2.xyxy;
-  r0.w = r1.y * 15 + -r0.w;
-  r1.xyz = g_Texture3.Sample(g_Texture3Sampler_s, r2.zw).xyz;
-  r2.xyz = g_Texture3.Sample(g_Texture3Sampler_s, r2.xy).xyz;
-  r1.xyz = -r2.xyz + r1.xyz;
-  r1.xyz = r0.www * r1.xyz + r2.xyz;
-  r2.xyz = -r1.xyz + r0.xyz;
-  r0.x = dot(hdr_enabled ? mask_source : r0.xyz, float3(0.298911989,0.586610973,0.114478));
-  r0.x = -0.25 + r0.x;
-  r0.x = saturate(1.33333337 * r0.x);
-  r0.y = r0.x * -2 + 3;
-  r0.x = r0.x * r0.x;
-  r0.x = r0.y * r0.x;
-  o0.xyz = r0.xxx * r2.xyz + r1.xyz;
-  if (hdr_enabled) {
-    // Native HDR's t3 LUT/output is linear, unlike the SDR encoded target.
-    o0.xyz = renodx::draw::ToneMapPass(hdr_source, o0.xyz, hdr_neutral);
+  // Fade from the LUT back to the mixed scene as luminance goes from 0.25 to 1.
+  float luma = dot(luma_source, float3(0.298911989, 0.586610973, 0.114478));
+  float highlight = smoothstep(0.25, 1.0, luma);
+  float3 color = highlight * (mixed - graded) + graded;
+  // This LUT and output are linear, unlike the encoded SDR target.
+  if (NIER_HDR_ENABLED) {
+    color = renodx::draw::ToneMapPass(hdr_source, color, hdr_neutral);
+  } else if (NIER_TONE_MAP_VANILLA) {
+    color = saturate(color);
   }
-  o0.w = 0;
-  return;
+  return float4(color, 0);
 }

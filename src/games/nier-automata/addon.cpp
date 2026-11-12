@@ -248,11 +248,17 @@ void OnOverlay(reshade::api::effect_runtime*) {
     if (ImGui::SliderFloat("UI white (nits)", &shader_injection.graphics_white_nits, 80.f, 400.f)) {
       reshade::set_config_value(nullptr, "renodx-nier_automata", "UIWhiteNits", shader_injection.graphics_white_nits);
     }
-    static constexpr const char* tone_map_types[] = {"Vanilla", "None", "ACES", "RenoDRT"};
+    static constexpr const char* tone_map_types[] = {"Vanilla (SDR)", "Off (upgrade only)", "ACES", "RenoDRT"};
     int tone_map_type = static_cast<int>(shader_injection.tone_map_type);
     if (ImGui::Combo("Tone mapper", &tone_map_type, tone_map_types, IM_ARRAYSIZE(tone_map_types))) {
       shader_injection.tone_map_type = static_cast<float>(tone_map_type);
       reshade::set_config_value(nullptr, "renodx-nier_automata", "ToneMapType", shader_injection.tone_map_type);
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Vanilla (SDR): the game's own look, capped at SDR white (scene white nits).\n"
+          "Off (upgrade only): HDR swap chain and buffer upgrade only; replaced shaders run their original code.\n"
+          "ACES / RenoDRT: RenoDX HDR tone mapping.");
     }
     bool gamma_correction = shader_injection.gamma_correction != 0.f;
     if (ImGui::Checkbox("Gamma correction (2.2)", &gamma_correction)) {

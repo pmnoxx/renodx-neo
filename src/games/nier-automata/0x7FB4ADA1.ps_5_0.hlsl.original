@@ -1,5 +1,5 @@
-// Readable vanilla baseline, manually checked against original ps_c3daded... assembly.
-// No HDR changes. Not registered in the game addon or active DevKit live directory.
+// Original: shader2.dat/filtershadertonemap.pso - main SDR scene tone map. Unpatched reference.
+// Readable rewrite; compiles to the game bytecode (verify_rewrite.py).
 cbuffer PSParamBuffer1 : register(b1) {
   float4 g_ExposureParam : packoffset(c0);
   float4 g_Brightness : packoffset(c1);
@@ -18,8 +18,8 @@ StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target0 {
   float2 offset = uv - 0.5;
   float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
-  float3 scene = mad(g_Texture0.Sample(g_Texture0Sampler, uv).rgb, vignette,
-                     g_Texture2.Sample(g_Texture2Sampler, uv).rgb);
+  float3 bloom = g_Texture2.Sample(g_Texture2Sampler, uv).rgb;
+  float3 scene = g_Texture0.Sample(g_Texture0Sampler, uv).rgb * vignette + bloom;
   float3 exposed = scene * g_AverageBrightnessBuffer[0];
   float3 factor = mad(exposed, 0.666666687, 1.0);
   float3 tonemapped = saturate((exposed * factor) / mad(exposed, factor, 1.0));
