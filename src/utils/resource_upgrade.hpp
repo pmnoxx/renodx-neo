@@ -3643,22 +3643,27 @@ inline bool OnResolveTextureRegion(
     // Vulkan event format is always unknown
     if (new_format == reshade::api::format::unknown) {
       new_format = dest_desc_new.texture.format;
-    } else if (utils::resource::FormatToTypeless(source_desc_new.texture.format) != source_desc_new.texture.format) {
-      new_format = source_desc_new.texture.format;
-    } else {
-      switch (source_desc_new.texture.format) {
-        case reshade::api::format::r16g16b16a16_typeless:
-          new_format = reshade::api::format::r16g16b16a16_float;
-          break;
-        case reshade::api::format::b8g8r8a8_typeless:
-          new_format = reshade::api::format::b8g8r8a8_unorm;
-          break;
-        case reshade::api::format::r8g8b8a8_typeless:
-          new_format = reshade::api::format::r8g8b8a8_unorm;
-          break;
-        default:
-          assert(false);
-          break;
+    } else if (utils::resource::FormatToTypeless(new_format)
+               != utils::resource::FormatToTypeless(source_desc_new.texture.format)) {
+      // Preserve the caller's compatible typed resolve format. R11G11B10_FLOAT
+      // has no typeless variant and must not enter the typeless-format switch.
+      if (utils::resource::FormatToTypeless(source_desc_new.texture.format) != source_desc_new.texture.format) {
+        new_format = source_desc_new.texture.format;
+      } else {
+        switch (source_desc_new.texture.format) {
+          case reshade::api::format::r16g16b16a16_typeless:
+            new_format = reshade::api::format::r16g16b16a16_float;
+            break;
+          case reshade::api::format::b8g8r8a8_typeless:
+            new_format = reshade::api::format::b8g8r8a8_unorm;
+            break;
+          case reshade::api::format::r8g8b8a8_typeless:
+            new_format = reshade::api::format::r8g8b8a8_unorm;
+            break;
+          default:
+            assert(false);
+            break;
+        }
       }
     }
 
