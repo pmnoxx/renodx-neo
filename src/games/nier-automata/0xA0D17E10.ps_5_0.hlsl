@@ -20,13 +20,18 @@ StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 float4 main(float4 position : SV_POSITION0, float2 uv : TEXCOORD0) : SV_Target0 {
   float2 offset = uv - 0.5;
   float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
+  if (NIER_DISABLE_VIGNETTE) vignette = 1.0;
   float3 bloom = g_Texture2.Sample(g_Texture2Sampler_s, uv).rgb;
+  if (NIER_DISABLE_BLOOM) bloom = 0.0;
   float3 scene = g_Texture0.Sample(g_Texture0Sampler_s, uv).rgb * vignette + bloom;
-  float3 exposed = scene * g_AverageBrightnessBuffer[0];
+  // Auto exposure off: fixed 1.0 multiplier instead of the measured scene brightness.
+  float3 exposed = scene * (NIER_DISABLE_AUTO_EXPOSURE ? 1.0 : g_AverageBrightnessBuffer[0]);
 
   // Rational curve x(1 + 2x/3) / (x(1 + 2x/3) + 1); off when auto exposure is disabled.
   float3 factor = exposed * 0.666666687 + 1.0;
   float3 tonemapped = (exposed * factor) / (exposed * factor + 1.0);
+  // Game curve off: exposed scene, clipped later by the LUT addressing in SDR modes.
+  if (NIER_DISABLE_GAME_TONE_MAP) tonemapped = exposed;
   float3 lut_input = saturate(g_ExposureParam.y > 0.0 ? tonemapped : scene);
   // HDR: address the LUT with a smooth curve of the untonemapped scene instead.
   float3 hdr_source = max(g_ExposureParam.y > 0.0 ? exposed : scene, 0.0);

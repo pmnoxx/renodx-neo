@@ -35,6 +35,7 @@ float3 CasSharpen(uint2 ip) {
   float w = amp * asfloat(const1.x);
   float rcp_weight = APrxMedRcp(1.0 + 4.0 * w);
   float3 sharpened = (b * w + d * w + f * w + h * w + e) * rcp_weight;
+  if (NIER_DISABLE_SHARPENING) sharpened = e;
   if (NIER_TONE_MAP_OFF) return saturate(sharpened);
   if (NIER_TONE_MAP_VANILLA) return clamp(sharpened, 0.0, NierSdrWhiteIntermediate());
   // HDR: the amplitude is already zero above SDR white; drop only the final clamp.

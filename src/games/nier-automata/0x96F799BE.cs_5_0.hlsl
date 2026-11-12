@@ -56,6 +56,10 @@ float3 CasUpscale(uint2 ip) {
   float wg = CasWeight(mng, mxg);
   float wj = CasWeight(mnj, mxj);
   float wk = CasWeight(mnk, mxk);
+  if (NIER_DISABLE_SHARPENING) {
+    // No negative lobe: plain contrast-adaptive bilinear upscale.
+    wf = 0.0; wg = 0.0; wj = 0.0; wk = 0.0;
+  }
 
   // Bilinear weights  s t / u v, thinned by local contrast to hide interpolation.
   float s = (1.0 - pp.x) * (1.0 - pp.y);
@@ -78,6 +82,8 @@ float3 CasUpscale(uint2 ip) {
   float qin = wj * u;
   float qlo = wk * v;
   float rcp_weight = APrxMedRcp(2.0 * qbe + 2.0 * qch + 2.0 * qin + 2.0 * qlo + qf + qg + qj + qk);
+  // Exact normalization without sharpening; the fast reciprocal is ~0.3% off.
+  if (NIER_DISABLE_SHARPENING) rcp_weight = 1.0 / (qf + qg + qj + qk);
   float3 sharpened = (b * qbe + e * qbe + c * qch + h * qch + i * qin + n * qin + l * qlo + o * qlo
                       + f * qf + g * qg + j * qj + k * qk) * rcp_weight;
   if (NIER_TONE_MAP_OFF) return saturate(sharpened);

@@ -48,7 +48,27 @@ int native_hdr_override_selection = static_cast<int>(NativeHdrOverride::FORCE_OF
 enum class NativeHdrPatchStatus { PENDING, UNMODIFIED, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
 std::atomic<NativeHdrPatchStatus> native_hdr_patch_status = NativeHdrPatchStatus::PENDING;
 bool disable_camera_motion_blur = false;
-ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f};
+ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+
+struct EffectToggle {
+  const char* label;
+  const char* key;
+  float ShaderInjectData::*value;
+  const char* tooltip;
+};
+constexpr EffectToggle EFFECT_TOGGLES[] = {
+    {"Disable bloom", "DisableBloom", &ShaderInjectData::disable_bloom,
+     "Drops the bloom texture added to the scene before tone mapping."},
+    {"Disable vignette", "DisableVignette", &ShaderInjectData::disable_vignette, "Removes the screen-edge darkening."},
+    {"Disable auto exposure", "DisableAutoExposure", &ShaderInjectData::disable_auto_exposure,
+     "Uses a fixed 1.0 exposure instead of the game's measured scene brightness.\n"
+     "Scenes can get much brighter or darker."},
+    {"Disable game tone mapping", "DisableGameToneMap", &ShaderInjectData::disable_game_tone_map,
+     "Skips the game's rational tone curve; the exposed scene is clipped at SDR white.\n"
+     "Affects Vanilla and Off. ACES/RenoDRT already replace the game curve."},
+    {"Disable sharpening", "DisableSharpening", &ShaderInjectData::disable_sharpening,
+     "Turns off AMD FidelityFX CAS sharpening; the upscaling variant becomes a plain adaptive bilinear upscale."},
+};
 
 bool OnReplaceCameraMotionVectors(reshade::api::command_list*) {
   return disable_camera_motion_blur;
@@ -283,6 +303,16 @@ void OnOverlay(reshade::api::effect_runtime*) {
       reshade::set_config_value(nullptr, "renodx-nier_automata", "Saturation", shader_injection.saturation);
     }
   }
+  if (ImGui::CollapsingHeader("Effects", ImGuiTreeNodeFlags_DefaultOpen)) {
+    for (const auto& toggle : EFFECT_TOGGLES) {
+      bool enabled = shader_injection.*toggle.value != 0.f;
+      if (ImGui::Checkbox(toggle.label, &enabled)) {
+        shader_injection.*toggle.value = enabled ? 1.f : 0.f;
+        reshade::set_config_value(nullptr, "renodx-nier_automata", toggle.key, shader_injection.*toggle.value);
+      }
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", toggle.tooltip);
+    }
+  }
   nier_automata::fps_unlock::OnOverlay();
   if (ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur)) {
     reshade::set_config_value(
@@ -319,6 +349,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       reshade::get_config_value(nullptr, "renodx-nier_automata", "Shadows", shader_injection.shadows);
       reshade::get_config_value(nullptr, "renodx-nier_automata", "Contrast", shader_injection.contrast);
       reshade::get_config_value(nullptr, "renodx-nier_automata", "Saturation", shader_injection.saturation);
+      for (const auto& toggle : EFFECT_TOGGLES) {
+        reshade::get_config_value(nullptr, "renodx-nier_automata", toggle.key, shader_injection.*toggle.value);
+      }
       game_begin = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
       const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
       const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);

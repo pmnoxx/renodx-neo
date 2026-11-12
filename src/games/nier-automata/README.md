@@ -98,3 +98,15 @@ No first-launch restart popup should appear, and `ADDON.LoadFromDllMain` must re
 ## Camera motion blur
 
 The overlay's `Disable camera motion blur` option replaces pixel shader `0x83015F55` with a neutral (0.5, 0.5) velocity output while enabled; it is off by default and saved as `DisableCameraMotionBlur`. Disassembly confirms that this pass computes camera velocity from the depth texture, camera parameters, and previous view-projection matrix. Two vertex shaders also produce previous-frame geometry velocity (`0x4ABDF171` and `0xF96BB863`); they are not replaced yet, so object-motion blur may remain. The current option only suppresses the camera-derived component and still needs visual verification in gameplay.
+
+## Effect toggles
+
+The **Effects** section has five checkboxes, all off by default. They apply in every tone mapper mode, including Off.
+
+- **Disable bloom**: drops the bloom texture added before tone mapping.
+- **Disable vignette**: removes the screen-edge darkening.
+- **Disable auto exposure**: uses a fixed 1.0 multiplier instead of `g_AverageBrightnessBuffer[0]`.
+- **Disable game tone mapping**: skips the game's rational curve, so the exposed scene clips at SDR white. This changes Vanilla and Off only, because ACES and RenoDRT already replace the curve.
+- **Disable sharpening**: in `casshadersharpen` the output is the centre texel. In `casshaderupsampleandsharpen` the sharpening weights are zero, leaving an exactly normalized adaptive bilinear upscale.
+
+Under `NIER_VERIFY_MODE` the toggles are compile-time `false`, so the Off-mode proof against the game bytecode still covers the default settings.

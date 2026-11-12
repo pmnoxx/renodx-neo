@@ -19,11 +19,15 @@ StructuredBuffer<float> g_AverageBrightnessBuffer : register(t5);
 float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target0 {
   float2 offset = uv - 0.5;
   float vignette = exp2(log2(saturate((1.0 - sqrt(dot(offset, offset))) / g_VignettoParam.x)) * g_VignettoParam.y);
+  if (NIER_DISABLE_VIGNETTE) vignette = 1.0;
   float3 bloom = g_Texture2.Sample(g_Texture2Sampler, uv).rgb;
+  if (NIER_DISABLE_BLOOM) bloom = 0.0;
   float3 scene = g_Texture0.Sample(g_Texture0Sampler, uv).rgb * vignette + bloom;
-  float3 exposed = scene * g_AverageBrightnessBuffer[0];
+  // Auto exposure off: fixed 1.0 multiplier instead of the measured scene brightness.
+  float3 exposed = scene * (NIER_DISABLE_AUTO_EXPOSURE ? 1.0 : g_AverageBrightnessBuffer[0]);
   float3 factor = mad(exposed, 0.666666687, 1.0);
   float3 tonemapped = saturate((exposed * factor) / mad(exposed, factor, 1.0));
+  if (NIER_DISABLE_GAME_TONE_MAP) tonemapped = saturate(exposed);
   float3 linear_sdr = saturate(g_ExposureParam.y > 0.0 ? tonemapped : scene);
   float3 encoded = saturate(linear_sdr <= 0.00313080009
                                ? linear_sdr * 12.9200001

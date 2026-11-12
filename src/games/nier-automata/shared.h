@@ -11,6 +11,11 @@ struct ShaderInjectData {
   float contrast;
   float saturation;
   float gamma_correction;
+  float disable_bloom;
+  float disable_vignette;
+  float disable_auto_exposure;
+  float disable_game_tone_map;
+  float disable_sharpening;
 };
 #ifndef __cplusplus
 cbuffer shader_injection : register(b13) {
@@ -41,10 +46,22 @@ cbuffer shader_injection : register(b13) {
 #define NIER_TONE_MAP_VANILLA (NIER_VERIFY_MODE == 0)
 #define NIER_TONE_MAP_OFF (NIER_VERIFY_MODE == 1)
 #define NIER_HDR_ENABLED (NIER_VERIFY_MODE >= 2)
+// Effect toggles are off, so the default settings reduce to the original code.
+#define NIER_DISABLE_BLOOM false
+#define NIER_DISABLE_VIGNETTE false
+#define NIER_DISABLE_AUTO_EXPOSURE false
+#define NIER_DISABLE_GAME_TONE_MAP false
+#define NIER_DISABLE_SHARPENING false
 #else
 #define NIER_TONE_MAP_VANILLA (RENODX_TONE_MAP_TYPE == 0.f)
 #define NIER_TONE_MAP_OFF (RENODX_TONE_MAP_TYPE == 1.f)
 #define NIER_HDR_ENABLED (RENODX_TONE_MAP_TYPE >= 2.f)
+// Optional effect toggles (all off by default), applied in every tone mapper mode.
+#define NIER_DISABLE_BLOOM (shader_injection.disable_bloom != 0.f)
+#define NIER_DISABLE_VIGNETTE (shader_injection.disable_vignette != 0.f)
+#define NIER_DISABLE_AUTO_EXPOSURE (shader_injection.disable_auto_exposure != 0.f)
+#define NIER_DISABLE_GAME_TONE_MAP (shader_injection.disable_game_tone_map != 0.f)
+#define NIER_DISABLE_SHARPENING (shader_injection.disable_sharpening != 0.f)
 #endif
 
 // SDR white in the intermediate encoding: scene white or UI white, whichever
