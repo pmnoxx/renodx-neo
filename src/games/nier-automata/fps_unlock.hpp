@@ -20,6 +20,8 @@
 
 #include "../../utils/minhook.hpp"
 
+#include "./executable.hpp"
+
 namespace nier_automata::fps_unlock {
 
 // Independently derived from the installed Steam executable's disassembly.
@@ -102,6 +104,10 @@ void OnUpdateTimer(void* timer, uint32_t advance, float fixed_step) {
 }
 
 void Initialize(uintptr_t base) {
+  if (!executable::GetStatus().supported) {
+    status = "Disabled by executable CRC32 check";
+    return;
+  }
   if (!startup_enabled) {
     status = "Disabled at startup";
     return;

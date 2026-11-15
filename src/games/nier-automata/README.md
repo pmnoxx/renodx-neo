@@ -30,6 +30,31 @@ longer writes `ADDON.LoadFromDllMain`, and the restart popup/countdown is remove
 Existing early-load entries are left untouched. The overlay reports memory-patch
 and output-hook installation separately; errors are recorded in `ReShade.log`.
 
+## Executable compatibility
+
+Before installing executable hooks or patches, the addon computes CRC32 of all
+bytes in the running executable's on-disk file. The supported Steam build has
+CRC32 `6751080E` and SHA256
+`09854c2d45d9a72e66357e72f50cee379bb2eafe35b3d64e5e88f4eddc8613fa`.
+The result is cached for the addon lifetime before its first executable change.
+Existing PE identity and instruction-anchor checks also apply at installation.
+
+A CRC mismatch or failure to read the executable disables native HDR override
+(including the factory import and output descriptor hooks), FPS unlock and its
+FPS target, LOD distance, and save anywhere. Their controls are disabled. A warning
+at the top of the addon overlay lists these features and shows the detected and
+supported CRC32, or a read-failure message. ReShade.log records the disabled list.
+RenoDX shader replacements, HDR output and shader-based effect controls remain
+available. Compatibility is checked even when all executable features are off.
+
+Verify the `nier-automata` target with `clang-x64-debug`. On the supported executable,
+confirm normal startup and feature operation. With a different executable version,
+confirm the top warning and four disabled feature entries, disabled controls, and
+no factory IAT patch, native HDR decision patch, FPS hooks, LOD hooks/writes or save
+hooks. Repeat with saved enabled settings and after creating another D3D11 device.
+A failed executable read must produce the same disabled state. Existing instruction
+anchor conflicts must continue to reject the affected patch on a matching CRC.
+
 ## Experimental FPS unlocker
 
 Unlock FPS is enabled by default with a 60 FPS limit. Raise the gameplay FPS

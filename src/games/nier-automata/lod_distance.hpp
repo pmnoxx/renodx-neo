@@ -15,6 +15,8 @@
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
 
+#include "./executable.hpp"
+
 namespace nier_automata::lod_distance {
 
 // Derived from the installed Steam executable (timestamp 6AC89519).
@@ -120,6 +122,10 @@ void Tick() {
 // Installed only when the multiplier leaves vanilla; models set up earlier keep
 // vanilla LODs until the area reloads.
 void Install() {
+  if (!executable::GetStatus().supported) {
+    status = "Disabled by executable CRC32 check";
+    return;
+  }
   if (installed.load(std::memory_order_acquire) || image_base == 0) return;
   const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
   const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(image_base + dos->e_lfanew);

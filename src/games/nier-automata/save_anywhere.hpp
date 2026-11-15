@@ -14,6 +14,8 @@
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
 
+#include "./executable.hpp"
+
 namespace nier_automata::save_anywhere {
 
 // Derived from the installed Steam executable (timestamp 6AC89519).
@@ -54,6 +56,10 @@ bool OnSaveStateTest(const void* state) {
 
 // Installed on first use only, so the game stays unmodified while the option is off.
 void Install() {
+  if (!executable::GetStatus().supported) {
+    status = "Disabled by executable CRC32 check";
+    return;
+  }
   if (installed.load(std::memory_order_acquire) || image_base == 0) return;
   const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
   const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(image_base + dos->e_lfanew);

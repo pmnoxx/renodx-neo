@@ -24,6 +24,7 @@
 #include <embed/shaders.h>
 #include "../../mods/shader.hpp"
 #include "../../mods/swapchain.hpp"
+#include "./executable.hpp"
 #include "./fps_unlock.hpp"
 #include "./lod_distance.hpp"
 #include "./save_anywhere.hpp"
@@ -149,8 +150,12 @@ void OnInitDevice(reshade::api::device* device) {
         mode = static_cast<uint32_t>(NativeHdrOverride::FORCE_OFF);
       }
       native_hdr_override_selection = static_cast<int>(mode);
-      native_hdr_override.store(static_cast<NativeHdrOverride>(mode));
-      if (mode == static_cast<uint32_t>(NativeHdrOverride::GAME_DEFAULT)) {
+      native_hdr_override.store(nier_automata::executable::GetStatus().supported
+                                    ? static_cast<NativeHdrOverride>(mode)
+                                    : NativeHdrOverride::GAME_DEFAULT);
+      if (!nier_automata::executable::GetStatus().supported) {
+        native_hdr_patch_status.store(NativeHdrPatchStatus::UNSUPPORTED);
+      } else if (mode == static_cast<uint32_t>(NativeHdrOverride::GAME_DEFAULT)) {
         native_hdr_patch_status.store(NativeHdrPatchStatus::UNMODIFIED);
         reshade::log::message(reshade::log::level::info, "NieR:Automata HDR: using the game's native HDR decision.");
       } else {
@@ -248,18 +253,37 @@ void OnPresent(reshade::api::command_queue*, reshade::api::swapchain*, const res
 }
 
 void OnOverlay(reshade::api::effect_runtime*) {
+  const auto& executable = nier_automata::executable::GetStatus();
+  if (!executable.supported) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.6f, 0.15f, 1.f));
+    ImGui::TextWrapped("WARNING - Unsupported game executable version. Executable-dependent features are disabled.");
+    if (executable.readable) {
+      ImGui::Text("Executable CRC32 %08X (supported %08X)", executable.crc32,
+                  nier_automata::executable::SUPPORTED_CRC32);
+    } else {
+      ImGui::TextWrapped("Executable CRC32 could not be read. Compatibility verification failed.");
+    }
+    ImGui::BulletText("Native HDR override");
+    ImGui::BulletText("FPS unlock and gameplay FPS target");
+    ImGui::BulletText("LOD distance");
+    ImGui::BulletText("Save anywhere");
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+  }
   ImGui::TextUnformatted("NieR:Automata HDR development");
   ImGui::Text("Version: %s", (addon_version.empty() ? "unknown" : addon_version.c_str()));
   ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
   static constexpr const char* NATIVE_HDR_MODES[] = {"Game default", "Force native HDR off", "Force native HDR on"};
+  ImGui::BeginDisabled(!executable.supported);
   if (ImGui::Combo("Native HDR override", &native_hdr_override_selection, NATIVE_HDR_MODES, IM_ARRAYSIZE(NATIVE_HDR_MODES))) {
     reshade::set_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", uint32_t(native_hdr_override_selection));
   }
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Game default follows display detection. Off selects the SDR game path for RenoDX. On selects the game's native HDR renderer.");
   }
+  ImGui::EndDisabled();
   ImGui::Text("Active native HDR mode: %s", NATIVE_HDR_MODES[static_cast<uint32_t>(native_hdr_override.load())]);
-  if (native_hdr_override_selection != static_cast<int>(native_hdr_override.load())) {
+  if (executable.supported && native_hdr_override_selection != static_cast<int>(native_hdr_override.load())) {
     ImGui::TextWrapped("Saved for next launch. Native HDR shaders and buffers are selected during game startup.");
   }
   ImGui::Text("Overridden native HDR queries: %u", overridden_hdr_queries.load(std::memory_order_relaxed));
@@ -328,9 +352,11 @@ void OnOverlay(reshade::api::effect_runtime*) {
       if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", toggle.tooltip);
     }
   }
+  ImGui::BeginDisabled(!executable.supported);
   nier_automata::fps_unlock::OnOverlay();
   nier_automata::lod_distance::OnOverlay();
   nier_automata::save_anywhere::OnOverlay();
+  ImGui::EndDisabled();
   if (ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur)) {
     reshade::set_config_value(
         nullptr, "renodx-nier_automata", "DisableCameraMotionBlur", uint32_t(disable_camera_motion_blur));
@@ -373,28 +399,33 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
       const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);
       game_end = game_begin + nt->OptionalHeader.SizeOfImage;
-      void* factory_import = nullptr;
-      auto* imports = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(
-          game_begin + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
-      for (; imports->Name != 0; ++imports) {
-        if (_stricmp(reinterpret_cast<const char*>(game_begin + imports->Name), "dxgi.dll") != 0
-            || imports->OriginalFirstThunk == 0) continue;
-        auto* names = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->OriginalFirstThunk);
-        auto* addresses = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->FirstThunk);
-        for (; names->u1.AddressOfData != 0; ++names, ++addresses) {
-          if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
-          const auto* import = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(game_begin + names->u1.AddressOfData);
-          if (std::strcmp(import->Name, "CreateDXGIFactory") == 0) {
-            // ReShade can already have redirected the executable import to its own entry point.
-            factory_import = reinterpret_cast<void*>(addresses->u1.Function);
-            break;
+      if (nier_automata::executable::GetStatus().supported) {
+        void* factory_import = nullptr;
+        auto* imports = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(
+            game_begin + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+        for (; imports->Name != 0; ++imports) {
+          if (_stricmp(reinterpret_cast<const char*>(game_begin + imports->Name), "dxgi.dll") != 0
+              || imports->OriginalFirstThunk == 0) continue;
+          auto* names = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->OriginalFirstThunk);
+          auto* addresses = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->FirstThunk);
+          for (; names->u1.AddressOfData != 0; ++names, ++addresses) {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+            const auto* import = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(game_begin + names->u1.AddressOfData);
+            if (std::strcmp(import->Name, "CreateDXGIFactory") == 0) {
+              // ReShade can already have redirected the executable import to its own entry point.
+              factory_import = reinterpret_cast<void*>(addresses->u1.Function);
+              break;
+            }
           }
         }
-      }
-      // Cover factory creation during early loading and later display rebuilds.
-      if (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory")) {
-        reshade::log::message(reshade::log::level::error,
-                              "NieR:Automata: factory hook unavailable; native HDR memory patch will still be attempted.");
+        // Cover factory creation during early loading and later display rebuilds.
+        if (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory")) {
+          reshade::log::message(reshade::log::level::error,
+                                "NieR:Automata: factory hook unavailable; native HDR memory patch will still be attempted.");
+        }
+      } else {
+        reshade::log::message(reshade::log::level::warning,
+                              "NieR:Automata: executable CRC32 verification failed. Disabled features: native HDR override, FPS unlock, LOD distance, save anywhere.");
       }
       renodx::mods::shader::force_pipeline_cloning = true;
       renodx::mods::shader::expected_constant_buffer_space = 50;
