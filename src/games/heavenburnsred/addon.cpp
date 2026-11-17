@@ -700,6 +700,19 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
             .use_resource_view_cloning = true,
             .usage_include = reshade::api::resource_usage::render_target,
         });
+        // Story scenes draw the room background (e.g. 2772x1176) and the character layer
+        // (MTenneDefaultAdvRenderer, 2816x4096) into off-screen RGBA8 render textures first; their lights
+        // and flashes clip at 1.0 there, before the Uber pass. Upgrade large RGBA8 render targets of any size.
+        renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+            .old_format = reshade::api::format::r8g8b8a8_typeless,
+            .new_format = reshade::api::format::r16g16b16a16_float,
+            .use_resource_view_cloning = true,
+            .dimensions = {.width = renodx::utils::resource::ResourceUpgradeInfo::ANY,
+                           .height = renodx::utils::resource::ResourceUpgradeInfo::ANY,
+                           .depth = renodx::utils::resource::ResourceUpgradeInfo::ANY},
+            .min_dimensions = {.width = 1024, .height = 1024},
+            .usage_include = reshade::api::resource_usage::render_target,
+        });
 
         reshade::register_event<reshade::addon_event::draw>(OnDraw);
         reshade::register_event<reshade::addon_event::draw_indexed>(OnDrawIndexed);
