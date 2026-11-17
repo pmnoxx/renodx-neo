@@ -38,6 +38,7 @@ void main(
   o0.w = r0.w;
   r0.xyz = r0.xyz ? r2.xyz : r1.xyz;
   r1.xyzw = t1.Sample(s1_s, v1.xy).xyzw;
+  r1.x = (CUSTOM_AUTO_EXPOSURE != 0.f) ? r1.x : 1.f;  // RenoDX
   r0.xyz = r1.xxx * r0.xyz;
   // RenoDX: capture the composed scene color before the SDR clip / LUT.
   float3 untonemapped = r0.xyz;

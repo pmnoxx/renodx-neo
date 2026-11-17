@@ -85,6 +85,7 @@ void main(
   r5.xyz = cmp(float3(0.0404499993,0.0404499993,0.0404499993) >= r1.xyz);
   r3.xyz = r5.xyz ? r4.xyz : r3.xyz;
   r4.xyzw = t1.Sample(s1_s, v1.xy).xyzw;
+  r4.x = (CUSTOM_AUTO_EXPOSURE != 0.f) ? r4.x : 1.f;  // RenoDX
   r1.xyz = r4.xxx * r3.xyz;
   r1.xyzw = r1.xyzw + r2.xyzw;
   r2.xy = v1.xy * cb0[33].xy + cb0[33].zw;

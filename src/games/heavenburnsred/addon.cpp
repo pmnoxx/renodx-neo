@@ -301,6 +301,15 @@ renodx::utils::settings::Settings settings = {
         .section = "Effects",
     },
     new renodx::utils::settings::Setting{
+        .key = "FxAutoExposure",
+        .binding = &shader_injection.custom_auto_exposure,
+        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .default_value = 1.f,
+        .label = "Auto Exposure",
+        .section = "Effects",
+        .tooltip = "Game eye adaptation. Off locks exposure at 1.0.",
+    },
+    new renodx::utils::settings::Setting{
         .key = "SwapChainCustomColorSpace",
         .binding = &shader_injection.swap_chain_custom_color_space,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,

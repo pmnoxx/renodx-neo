@@ -74,6 +74,7 @@ struct ShaderInjectData {
   float custom_bloom;
   float custom_vignette;
   float custom_chromatic_aberration;
+  float custom_auto_exposure;
 };
 
 #ifndef __cplusplus
@@ -119,6 +120,7 @@ cbuffer shader_injection : register(b13) {
 #define CUSTOM_BLOOM                           shader_injection.custom_bloom
 #define CUSTOM_VIGNETTE                        shader_injection.custom_vignette
 #define CUSTOM_CHROMATIC_ABERRATION            shader_injection.custom_chromatic_aberration
+#define CUSTOM_AUTO_EXPOSURE                   shader_injection.custom_auto_exposure
 #define RENODX_RENO_DRT_TONE_MAP_METHOD        renodx::tonemap::renodrt::config::tone_map_method::REINHARD
 
 #include "../../shaders/renodx.hlsl"
