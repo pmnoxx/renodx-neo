@@ -75,6 +75,10 @@ struct ShaderInjectData {
   float custom_vignette;
   float custom_chromatic_aberration;
   float custom_auto_exposure;
+  float custom_background_zoom;
+  float custom_screen_width;
+  float custom_screen_height;
+  float custom_uber_chained;
 };
 
 #ifndef __cplusplus
@@ -121,6 +125,10 @@ cbuffer shader_injection : register(b13) {
 #define CUSTOM_VIGNETTE                        shader_injection.custom_vignette
 #define CUSTOM_CHROMATIC_ABERRATION            shader_injection.custom_chromatic_aberration
 #define CUSTOM_AUTO_EXPOSURE                   shader_injection.custom_auto_exposure
+#define CUSTOM_BACKGROUND_ZOOM                 shader_injection.custom_background_zoom
+#define CUSTOM_SCREEN_WIDTH                    shader_injection.custom_screen_width
+#define CUSTOM_SCREEN_HEIGHT                   shader_injection.custom_screen_height
+#define CUSTOM_UBER_CHAINED                    shader_injection.custom_uber_chained
 #define RENODX_RENO_DRT_TONE_MAP_METHOD        renodx::tonemap::renodrt::config::tone_map_method::REINHARD
 
 #include "../../shaders/renodx.hlsl"
