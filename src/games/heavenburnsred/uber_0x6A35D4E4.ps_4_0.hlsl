@@ -51,6 +51,7 @@ void main(
   r1.xyz = r3.xyz ? r2.xyz : r1.xyz;
   r2.xyzw = t1.Sample(s1_s, v1.xy).xyzw;
   r2.x = (CUSTOM_AUTO_EXPOSURE != 0.f) ? r2.x : 1.f;  // RenoDX
+  float renodx_exposure = r2.x;  // RenoDX
   r0.xyz = r2.xxx * r1.xyz;
   r1.xyzw = float4(-1,-1,1,1) * cb0[32].xyxy;
   r2.x = 0.5 * cb0[34].x;
@@ -91,6 +92,13 @@ void main(
   r0.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r0.xyz);
   o0.w = r0.w;
   o0.xyz = r0.xyz ? r2.xyz : r1.xyz;
+  // RenoDX: a second Uber in the same frame (story layer over a blitted 3D camera) receives the
+  // first Uber's HDR intermediate; decode it and only re-apply exposure.
+  if (RENODX_TONE_MAP_TYPE != 0.f && CUSTOM_UBER_CHAINED != 0.f) {
+    float3 chained_scene = renodx::draw::InvertIntermediatePass(t0.Sample(s0_s, w1.xy).xyz);
+    o0.xyz = renodx::draw::RenderIntermediatePass(chained_scene * renodx_exposure);
+    return;
+  }
   // RenoDX: upgrade the vanilla SDR grade to HDR.
   float3 graded_sdr = renodx::color::srgb::DecodeSafe(o0.xyz);
   if (RENODX_TONE_MAP_TYPE == 0.f) {
