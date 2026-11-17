@@ -44,6 +44,7 @@ void main(
   float4 fDest;
 
   r0.xyzw = t1.Sample(s1_s, v1.xy).xyzw;
+  r0.x = (CUSTOM_AUTO_EXPOSURE != 0.f) ? r0.x : 1.f;  // RenoDX
   r0.yz = v1.xy * float2(2,2) + float2(-1,-1);
   r0.w = dot(r0.yz, r0.yz);
   r0.yz = r0.yz * r0.ww;

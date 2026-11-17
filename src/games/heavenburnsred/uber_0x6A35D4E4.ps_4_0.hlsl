@@ -50,6 +50,7 @@ void main(
   r3.xyz = cmp(float3(0.0404499993,0.0404499993,0.0404499993) >= r0.xyz);
   r1.xyz = r3.xyz ? r2.xyz : r1.xyz;
   r2.xyzw = t1.Sample(s1_s, v1.xy).xyzw;
+  r2.x = (CUSTOM_AUTO_EXPOSURE != 0.f) ? r2.x : 1.f;  // RenoDX
   r0.xyz = r2.xxx * r1.xyz;
   r1.xyzw = float4(-1,-1,1,1) * cb0[32].xyxy;
   r2.x = 0.5 * cb0[34].x;
