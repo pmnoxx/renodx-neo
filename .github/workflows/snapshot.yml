@@ -53,8 +53,9 @@ jobs:
         with:
           arch: amd64
 
+      # The runner's MSVC STL can require a newer Clang than setup-clang provides (STL1000).
       - name: Configure CMake (x64)
-        run: cmake --preset clang-x64 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+        run: cmake --preset clang-x64 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
 
       - name: Build (x64)
         run: .\scripts\build-games.ps1
