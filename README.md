@@ -19,10 +19,11 @@ The games maintained in this fork are listed in [games.json](./games.json). This
 | --- | --- | --- |
 | Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Ftotal-eclipse&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/total-eclipse) |
 | NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fnier-automata&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/nier-automata) |
+| Azur Promilia | [renodx-azur-promilia.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-azur-promilia.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fazur-promilia&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/azur-promilia) |
 
 Snapshot badges show the latest commit to each game's source folder on `main`.
 
-Both mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). Source code for other RenoDX mods is available under [src/games](./src/games); they are not included in this fork's snapshot.
+All mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). Source code for other RenoDX mods is available under [src/games](./src/games); they are not included in this fork's snapshot.
 
 # Building these mods
 
