@@ -38,12 +38,6 @@ jobs:
         shell: pwsh
         run: .\scripts\setup-dev-env.ps1 -Update -Tools dxc,slang,glslang
 
-      - name: Set up Clang
-        uses: egor-tensin/setup-clang@v1
-        with:
-          version: latest
-          platform: x64
-
       - name: Install ninja-build tool
         uses: seanmiddleditch/gha-setup-ninja@v5
 
@@ -53,9 +47,23 @@ jobs:
         with:
           arch: amd64
 
-      # The runner's MSVC STL can require a newer Clang than setup-clang provides (STL1000).
+      # The runner's MSVC STL requires Clang 22 or newer (STL1000); Chocolatey's LLVM lags behind,
+      # so install a pinned LLVM release after the MSVC environment so it comes first on PATH.
+      - name: Set up Clang
+        shell: pwsh
+        env:
+          LLVM_VERSION: 23.1.5
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "clang+llvm-$env:LLVM_VERSION-x86_64-pc-windows-msvc"
+          gh release download "llvmorg-$env:LLVM_VERSION" -R llvm/llvm-project -p "$name.tar.xz" -D "$env:RUNNER_TEMP"
+          tar -xf "$env:RUNNER_TEMP/$name.tar.xz" -C "$env:RUNNER_TEMP"
+          "$env:RUNNER_TEMP/$name/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:RUNNER_TEMP/$name/bin/clang-cl.exe" --version
+
       - name: Configure CMake (x64)
-        run: cmake --preset clang-x64 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
+        run: cmake --preset clang-x64 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build (x64)
         run: .\scripts\build-games.ps1
