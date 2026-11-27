@@ -1,0 +1,15 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "darkestdungeon2",
+  "title": "Darkest Dungeon II",
+  "maintainers": [
+    "pmnoxx"
+  ],
+  "status": "experimental",
+  "deploy": {
+    "steam_appid": 1940340,
+    "game_exe": "Darkest Dungeon II.exe",
+    "api": "d3d11",
+    "architecture": "x64"
+  }
+}
