@@ -1,0 +1,21 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "azur-promilia",
+  "title": "Azur Promilia",
+  "category": "game",
+  "compatibility": "in-progress",
+  "status": "experimental",
+  "summary": "HDR for the Unity 2022.3 Lens Render Pipeline D3D11 build: all desktop UberPost variants upgraded, UI target upgraded, optional UID hiding.",
+  "tags": ["HDR", "WIP", "Unity"],
+  "deploy": {
+    "game_exe": "AzurPromiliaJP.exe",
+    "process_name": "AzurPromiliaJP.exe",
+    "api": "d3d11",
+    "architecture": ["x64"],
+    "platform": "yostar",
+    "detection": {
+      "default_install_paths": ["D:\\games\\YostarGames\\AZUPRO_JP"],
+      "probe_process_by_name": true
+    }
+  }
+}
