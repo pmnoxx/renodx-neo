@@ -1,0 +1,8 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "total-war-warhammer-3",
+  "title": "Total War: WARHAMMER III",
+  "deploy": {
+    "steam_appid": 1142710
+  }
+}
