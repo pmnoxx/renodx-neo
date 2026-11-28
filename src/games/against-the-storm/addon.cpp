@@ -364,7 +364,7 @@ renodx::utils::settings::Settings settings = {
     },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::TEXT,
-        .label = "Version: 1.0.0",
+        .label = "Version: 1.0.1",
         .section = "About",
         .tooltip = std::string(__DATE__),
     },
@@ -399,7 +399,7 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Against the Storm v1.0.0";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Against the Storm v1.0.1";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
