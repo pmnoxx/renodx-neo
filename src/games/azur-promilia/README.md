@@ -23,3 +23,5 @@ Build the `azur-promilia` target. The expected artifact is `renodx-azur-promilia
 ## Manual verification
 
 Load the addon through ReShade in Azur Promilia, confirm the RenoDX settings appear, and check that the three listed resource upgrades use Output size by default. Verify HDR output and tone mapping in game.
+
+With RenoDRT enabled, check a bright scene that uses a `PostProcess2D` color LUT. Highlights should exceed Game Brightness while the LUT still affects the image. Switch to Vanilla to check the original SDR behavior.
