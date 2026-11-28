@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include <array>
 #include <cstdint>
+#include <cstring>
 
 #include "../../utils/hash.hpp"
 
@@ -46,6 +47,29 @@ const Status& GetStatus() {
     return Status{};
   }();
   return status;
+}
+
+// Current target of a named import of the game executable, or nullptr. Looked up by name
+// because ReShade and mod loaders can already have redirected the entry.
+inline void* FindImport(const char* dll, const char* name) {
+  const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+      base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+  auto* imports = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(
+      base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+  for (; imports->Name != 0; ++imports) {
+    if (_stricmp(reinterpret_cast<const char*>(base + imports->Name), dll) != 0
+        || imports->OriginalFirstThunk == 0) continue;
+    auto* names = reinterpret_cast<const IMAGE_THUNK_DATA*>(base + imports->OriginalFirstThunk);
+    auto* addresses = reinterpret_cast<const IMAGE_THUNK_DATA*>(base + imports->FirstThunk);
+    for (; names->u1.AddressOfData != 0; ++names, ++addresses) {
+      if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+      if (std::strcmp(reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData)->Name, name) == 0) {
+        return reinterpret_cast<void*>(addresses->u1.Function);
+      }
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace nier_automata::executable

@@ -12,11 +12,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <thread>
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
+
+#include "./overlay.hpp"
 
 #include "../../utils/minhook.hpp"
 
@@ -48,6 +55,47 @@ static std::atomic_int target_fps = 60;
 static std::atomic<float> observed_fps = 0.f;
 static std::atomic<float> simulation_step = 1.f;
 static const char* status = "Waiting for initialization";
+static bool wax_detected = false;
+static bool wax_restart_required = false;
+
+// The WAX mod loader (dinput8.dll) paces frames at 60 FPS itself unless its own
+// uncap_fps option is set. WAX reads its config before add-ons load, so a change
+// made here applies on the next launch. Only the value is edited; the file is
+// JSON with comments and the rest is kept byte for byte.
+void EnableWaxUncapFps() {
+  std::wstring executable_path(32768, L'\0');
+  const DWORD length = GetModuleFileNameW(nullptr, executable_path.data(), static_cast<DWORD>(executable_path.size()));
+  if (length == 0 || length >= executable_path.size()) return;
+  executable_path.resize(length);
+  const auto config_path = std::filesystem::path(executable_path).parent_path() / "wax" / "config.json";
+  std::ifstream input(config_path, std::ios::binary);
+  if (!input) return;
+  wax_detected = true;
+  std::string config((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  input.close();
+
+  constexpr std::string_view KEY = "\"uncap_fps\"";
+  const size_t key = config.find(KEY);
+  if (key == std::string::npos) return;
+  const size_t value = config.find_first_not_of(" \t\r\n:", key + KEY.size());
+  if (value == std::string::npos || config.compare(value, 5, "false") != 0) return;
+  config.replace(value, 5, "true");
+  // Keep WAX's trailing comment column aligned.
+  if (config.compare(value + 4, 2, ", ") == 0) {
+    config.insert(value + 5, 1, ' ');
+  }
+
+  std::ofstream output(config_path, std::ios::binary | std::ios::trunc);
+  output.write(config.data(), static_cast<std::streamsize>(config.size()));
+  output.close();
+  if (output.fail()) {
+    reshade::log::message(reshade::log::level::warning, "NieR:Automata FPS: cannot write uncap_fps to wax\\config.json.");
+    return;
+  }
+  wax_restart_required = true;
+  reshade::log::message(reshade::log::level::info,
+                        "NieR:Automata FPS: set uncap_fps to true in wax\\config.json; WAX applies it on the next launch.");
+}
 
 void OnUpdateTimer(void* timer, uint32_t advance, float fixed_step) {
   if (reinterpret_cast<uintptr_t>(timer) != image_base + GAME_TIMER_RVA) {
@@ -113,6 +161,7 @@ void Initialize(uintptr_t base) {
     return;
   }
   if (installed.load(std::memory_order_acquire)) return;
+  EnableWaxUncapFps();
   image_base = base;
   reshade::log::message(reshade::log::level::info, "NieR:Automata FPS: initializing independent unlocker.");
   const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
@@ -177,17 +226,32 @@ void Initialize(uintptr_t base) {
 void OnOverlay() {
   ImGui::Separator();
   bool enabled = requested.load(std::memory_order_relaxed);
-  if (ImGui::Checkbox("Unlock FPS (experimental)", &enabled)) {
+  bool enabled_changed = ImGui::Checkbox("Unlock FPS (experimental)", &enabled);
+  enabled_changed |= overlay::ResetToDefault("UnlockFPS", &enabled, true);
+  if (enabled_changed) {
     requested.store(enabled, std::memory_order_relaxed);
     reshade::set_config_value(nullptr, "renodx-nier_automata", "UnlockFPS", uint32_t(enabled));
+    if (enabled) {
+      EnableWaxUncapFps();
+    }
   }
   int limit = target_fps.load(std::memory_order_relaxed);
-  if (ImGui::SliderInt("Gameplay FPS target", &limit, 60, 360)) {
+  bool limit_changed = ImGui::SliderInt("Gameplay FPS target", &limit, 60, 360);
+  limit_changed |= overlay::ResetToDefault("FPSLimit", &limit, 60);
+  if (limit_changed) {
     target_fps.store(limit, std::memory_order_relaxed);
     reshade::set_config_value(nullptr, "renodx-nier_automata", "FPSLimit", uint32_t(limit));
   }
   ImGui::TextUnformatted(status);
   if (!startup_enabled && enabled) ImGui::TextUnformatted("Restart the game to install the unlocker.");
+  if (wax_detected) {
+    ImGui::TextUnformatted("WAX detected: Unlock FPS keeps uncap_fps enabled in wax\\config.json.");
+  }
+  if (wax_restart_required) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.2f, 0.2f, 1.f));
+    ImGui::TextWrapped("WAX config had its 60 FPS cap on (uncap_fps: false). Fixed in wax\\config.json; restart the game to apply.");
+    ImGui::PopStyleColor();
+  }
   if (installed.load(std::memory_order_acquire)) {
     ImGui::Text("Game updates: %.1f FPS; simulation step: %.3f", observed_fps.load(), simulation_step.load());
     ImGui::TextWrapped("Turn Unlock FPS off for a 60 FPS safety cap during timing-sensitive scenes. Higher FPS can affect scripts and menus.");

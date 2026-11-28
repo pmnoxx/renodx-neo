@@ -16,6 +16,7 @@
 #include <include/reshade.hpp>
 
 #include "./executable.hpp"
+#include "./overlay.hpp"
 
 namespace nier_automata::lod_distance {
 
@@ -162,16 +163,18 @@ void Initialize(uintptr_t base) {
 
 void OnOverlay() {
   float value = multiplier.load(std::memory_order_relaxed);
-  if (ImGui::SliderFloat("LOD distance", &value, 1.f, 20.f, "%.1fx")) {
-    multiplier.store(value, std::memory_order_relaxed);
-    reshade::set_config_value(nullptr, "renodx-nier_automata", "LODDistance", value);
-    if (value > 1.f) Install();
-  }
+  bool changed = ImGui::SliderFloat("LOD distance", &value, 1.f, 20.f, "%.1fx");
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Keeps full-detail models (bushes, props, buildings) out to this many times the game's LOD distance.\n"
         "1.0x is vanilla. Higher values cost GPU time. Models loaded before the first change\n"
         "keep vanilla LODs until the area reloads.");
+  }
+  changed |= overlay::ResetToDefault("LODDistance", &value, 1.f);
+  if (changed) {
+    multiplier.store(value, std::memory_order_relaxed);
+    reshade::set_config_value(nullptr, "renodx-nier_automata", "LODDistance", value);
+    if (value > 1.f) Install();
   }
   if (value > 1.f) ImGui::Text("%s; tracked models: %zu", status, tables.size());
 }

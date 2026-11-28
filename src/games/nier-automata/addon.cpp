@@ -27,8 +27,12 @@
 #include "./executable.hpp"
 #include "./fps_unlock.hpp"
 #include "./lod_distance.hpp"
+#include "./graphics_tweaks.hpp"
+#include "./movie_mods.hpp"
+#include "./overlay.hpp"
 #include "./save_anywhere.hpp"
 #include "./shared.h"
+#include "./texture_mods.hpp"
 
 #include "../../utils/iat_hook.hpp"
 #include "../../utils/platform.hpp"
@@ -51,7 +55,8 @@ int native_hdr_override_selection = static_cast<int>(NativeHdrOverride::FORCE_OF
 enum class NativeHdrPatchStatus { PENDING, UNMODIFIED, INSTALLED, UNSUPPORTED, PROTECTION_FAILED };
 std::atomic<NativeHdrPatchStatus> native_hdr_patch_status = NativeHdrPatchStatus::PENDING;
 bool disable_camera_motion_blur = false;
-ShaderInjectData shader_injection = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+constexpr ShaderInjectData DEFAULT_SHADER_INJECTION = {1000.f, 203.f, 203.f, 1.f, 3.f, 1.f, 1.f, 1.f, 1.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+ShaderInjectData shader_injection = DEFAULT_SHADER_INJECTION;
 
 struct EffectToggle {
   const char* label;
@@ -77,6 +82,11 @@ bool OnReplaceCameraMotionVectors(reshade::api::command_list*) {
   return disable_camera_motion_blur;
 }
 
+// The original shader stays in place while the strength is the game's own.
+bool OnReplaceAmbientOcclusionUpsample(reshade::api::command_list*) {
+  return shader_injection.ambient_occlusion_strength != 1.f;
+}
+
 renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x7FB4ADA1),
     CustomShaderEntry(0x644BD65C),
@@ -85,6 +95,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x83C6596C),
     CustomShaderEntry(0x96F799BE),
     CustomShaderEntryCallback(0x83015F55, OnReplaceCameraMotionVectors),
+    CustomShaderEntryCallback(0x376F65B3, OnReplaceAmbientOcclusionUpsample),
 };
 
 HRESULT STDMETHODCALLTYPE OnGetOutputDesc(IDXGIOutput6* output, DXGI_OUTPUT_DESC1* desc) {
@@ -244,15 +255,21 @@ void OnInitDevice(reshade::api::device* device) {
     reshade::get_config_value(nullptr, "renodx-nier_automata", "LODDistance", lod_distance);
     nier_automata::lod_distance::multiplier.store(std::clamp(lod_distance, 1.f, 20.f));
     nier_automata::lod_distance::Initialize(game_begin);
+    nier_automata::graphics_tweaks::Initialize(game_begin);
+    nier_automata::texture_mods::Scan(device);
   }
 }
 
 void OnPresent(reshade::api::command_queue*, reshade::api::swapchain*, const reshade::api::rect*,
                const reshade::api::rect*, uint32_t, const reshade::api::rect*) {
   nier_automata::lod_distance::Tick();
+  shader_injection.ambient_occlusion_strength =
+      (nier_automata::graphics_tweaks::disable_ambient_occlusion.load(std::memory_order_relaxed)
+           ? 0.f
+           : nier_automata::graphics_tweaks::ambient_occlusion_strength.load(std::memory_order_relaxed));
 }
 
-void OnOverlay(reshade::api::effect_runtime*) {
+void OnOverlay(reshade::api::effect_runtime* runtime) {
   const auto& executable = nier_automata::executable::GetStatus();
   if (!executable.supported) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.6f, 0.15f, 1.f));
@@ -265,7 +282,7 @@ void OnOverlay(reshade::api::effect_runtime*) {
     }
     ImGui::BulletText("Native HDR override");
     ImGui::BulletText("FPS unlock and gameplay FPS target");
-    ImGui::BulletText("LOD distance");
+    ImGui::BulletText("LOD distance and graphics tweaks");
     ImGui::BulletText("Save anywhere");
     ImGui::PopStyleColor();
     ImGui::Separator();
@@ -275,11 +292,15 @@ void OnOverlay(reshade::api::effect_runtime*) {
   ImGui::TextUnformatted("Compiled: " __DATE__ " " __TIME__);
   static constexpr const char* NATIVE_HDR_MODES[] = {"Game default", "Force native HDR off", "Force native HDR on"};
   ImGui::BeginDisabled(!executable.supported);
-  if (ImGui::Combo("Native HDR override", &native_hdr_override_selection, NATIVE_HDR_MODES, IM_ARRAYSIZE(NATIVE_HDR_MODES))) {
-    reshade::set_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", uint32_t(native_hdr_override_selection));
-  }
+  bool native_hdr_override_changed =
+      ImGui::Combo("Native HDR override", &native_hdr_override_selection, NATIVE_HDR_MODES, IM_ARRAYSIZE(NATIVE_HDR_MODES));
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Game default follows display detection. Off selects the SDR game path for RenoDX. On selects the game's native HDR renderer.");
+  }
+  native_hdr_override_changed |= nier_automata::overlay::ResetToDefault(
+      "NativeHDROverride", &native_hdr_override_selection, static_cast<int>(NativeHdrOverride::FORCE_OFF));
+  if (native_hdr_override_changed) {
+    reshade::set_config_value(nullptr, "renodx-nier_automata", "NativeHDROverride", uint32_t(native_hdr_override_selection));
   }
   ImGui::EndDisabled();
   ImGui::Text("Active native HDR mode: %s", NATIVE_HDR_MODES[static_cast<uint32_t>(native_hdr_override.load())]);
@@ -297,67 +318,75 @@ void OnOverlay(reshade::api::effect_runtime*) {
     ImGui::PopStyleColor();
   }
   ImGui::Text("Output descriptor hook: %s", (output_desc_hook.installed_address != nullptr ? "installed" : "unavailable"));
+  auto draw_slider = [](const char* label, const char* key, float ShaderInjectData::*value, float minimum,
+                        float maximum, const char* format) {
+    bool changed = ImGui::SliderFloat(label, &(shader_injection.*value), minimum, maximum, format);
+    changed |= nier_automata::overlay::ResetToDefault(key, &(shader_injection.*value), DEFAULT_SHADER_INJECTION.*value);
+    if (changed) {
+      reshade::set_config_value(nullptr, "renodx-nier_automata", key, shader_injection.*value);
+    }
+  };
   if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::SliderFloat("Peak brightness (nits)", &shader_injection.peak_white_nits, 203.f, 4000.f)) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "PeakWhiteNits", shader_injection.peak_white_nits);
-    }
-    if (ImGui::SliderFloat("Scene white (nits)", &shader_injection.diffuse_white_nits, 80.f, 400.f)) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "SceneWhiteNits", shader_injection.diffuse_white_nits);
-    }
-    if (ImGui::SliderFloat("UI white (nits)", &shader_injection.graphics_white_nits, 80.f, 400.f)) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "UIWhiteNits", shader_injection.graphics_white_nits);
-    }
+    draw_slider("Peak brightness (nits)", "PeakWhiteNits", &ShaderInjectData::peak_white_nits, 203.f, 4000.f, "%.3f");
+    draw_slider("Scene white (nits)", "SceneWhiteNits", &ShaderInjectData::diffuse_white_nits, 80.f, 400.f, "%.3f");
+    draw_slider("UI white (nits)", "UIWhiteNits", &ShaderInjectData::graphics_white_nits, 80.f, 400.f, "%.3f");
     static constexpr const char* tone_map_types[] = {"Vanilla (SDR)", "Off (upgrade only)", "ACES", "RenoDRT"};
     int tone_map_type = static_cast<int>(shader_injection.tone_map_type);
-    if (ImGui::Combo("Tone mapper", &tone_map_type, tone_map_types, IM_ARRAYSIZE(tone_map_types))) {
-      shader_injection.tone_map_type = static_cast<float>(tone_map_type);
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "ToneMapType", shader_injection.tone_map_type);
-    }
+    bool tone_map_type_changed = ImGui::Combo("Tone mapper", &tone_map_type, tone_map_types, IM_ARRAYSIZE(tone_map_types));
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Vanilla (SDR): the game's own look, capped at SDR white (scene white nits).\n"
           "Off (upgrade only): HDR swap chain and buffer upgrade only; replaced shaders run their original code.\n"
           "ACES / RenoDRT: RenoDX HDR tone mapping.");
     }
+    tone_map_type_changed |= nier_automata::overlay::ResetToDefault(
+        "ToneMapType", &tone_map_type, static_cast<int>(DEFAULT_SHADER_INJECTION.tone_map_type));
+    if (tone_map_type_changed) {
+      shader_injection.tone_map_type = static_cast<float>(tone_map_type);
+      reshade::set_config_value(nullptr, "renodx-nier_automata", "ToneMapType", shader_injection.tone_map_type);
+    }
     bool gamma_correction = shader_injection.gamma_correction != 0.f;
-    if (ImGui::Checkbox("Gamma correction (2.2)", &gamma_correction)) {
+    bool gamma_correction_changed = ImGui::Checkbox("Gamma correction (2.2)", &gamma_correction);
+    gamma_correction_changed |= nier_automata::overlay::ResetToDefault(
+        "GammaCorrection", &gamma_correction, DEFAULT_SHADER_INJECTION.gamma_correction != 0.f);
+    if (gamma_correction_changed) {
       shader_injection.gamma_correction = gamma_correction ? 1.f : 0.f;
       reshade::set_config_value(nullptr, "renodx-nier_automata", "GammaCorrection", shader_injection.gamma_correction);
     }
-    if (ImGui::SliderFloat("Exposure", &shader_injection.exposure, 0.f, 4.f, "%.2f")) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "Exposure", shader_injection.exposure);
-    }
+    draw_slider("Exposure", "Exposure", &ShaderInjectData::exposure, 0.f, 4.f, "%.2f");
   }
   if (ImGui::CollapsingHeader("Advanced color grading", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::SliderFloat("Highlights", &shader_injection.highlights, 0.f, 2.f, "%.2f")) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "Highlights", shader_injection.highlights);
-    }
-    if (ImGui::SliderFloat("Shadows", &shader_injection.shadows, 0.f, 2.f, "%.2f")) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "Shadows", shader_injection.shadows);
-    }
-    if (ImGui::SliderFloat("Contrast", &shader_injection.contrast, 0.f, 2.f, "%.2f")) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "Contrast", shader_injection.contrast);
-    }
-    if (ImGui::SliderFloat("Saturation", &shader_injection.saturation, 0.f, 2.f, "%.2f")) {
-      reshade::set_config_value(nullptr, "renodx-nier_automata", "Saturation", shader_injection.saturation);
-    }
+    draw_slider("Highlights", "Highlights", &ShaderInjectData::highlights, 0.f, 2.f, "%.2f");
+    draw_slider("Shadows", "Shadows", &ShaderInjectData::shadows, 0.f, 2.f, "%.2f");
+    draw_slider("Contrast", "Contrast", &ShaderInjectData::contrast, 0.f, 2.f, "%.2f");
+    draw_slider("Saturation", "Saturation", &ShaderInjectData::saturation, 0.f, 2.f, "%.2f");
   }
   if (ImGui::CollapsingHeader("Effects", ImGuiTreeNodeFlags_DefaultOpen)) {
     for (const auto& toggle : EFFECT_TOGGLES) {
       bool enabled = shader_injection.*toggle.value != 0.f;
-      if (ImGui::Checkbox(toggle.label, &enabled)) {
+      bool changed = ImGui::Checkbox(toggle.label, &enabled);
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", toggle.tooltip);
+      }
+      changed |= nier_automata::overlay::ResetToDefault(
+          toggle.key, &enabled, DEFAULT_SHADER_INJECTION.*toggle.value != 0.f);
+      if (changed) {
         shader_injection.*toggle.value = enabled ? 1.f : 0.f;
         reshade::set_config_value(nullptr, "renodx-nier_automata", toggle.key, shader_injection.*toggle.value);
       }
-      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", toggle.tooltip);
     }
   }
   ImGui::BeginDisabled(!executable.supported);
   nier_automata::fps_unlock::OnOverlay();
-  nier_automata::lod_distance::OnOverlay();
   nier_automata::save_anywhere::OnOverlay();
+  nier_automata::graphics_tweaks::OnOverlay();
   ImGui::EndDisabled();
-  if (ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur)) {
+  nier_automata::texture_mods::OnOverlay(runtime->get_device());
+  nier_automata::movie_mods::OnOverlay();
+  bool camera_motion_blur_changed = ImGui::Checkbox("Disable camera motion blur", &disable_camera_motion_blur);
+  camera_motion_blur_changed |=
+      nier_automata::overlay::ResetToDefault("DisableCameraMotionBlur", &disable_camera_motion_blur, false);
+  if (camera_motion_blur_changed) {
     reshade::set_config_value(
         nullptr, "renodx-nier_automata", "DisableCameraMotionBlur", uint32_t(disable_camera_motion_blur));
   }
@@ -399,25 +428,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game_begin);
       const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(game_begin + dos->e_lfanew);
       game_end = game_begin + nt->OptionalHeader.SizeOfImage;
+      nier_automata::movie_mods::Initialize(game_begin);
       if (nier_automata::executable::GetStatus().supported) {
-        void* factory_import = nullptr;
-        auto* imports = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(
-            game_begin + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
-        for (; imports->Name != 0; ++imports) {
-          if (_stricmp(reinterpret_cast<const char*>(game_begin + imports->Name), "dxgi.dll") != 0
-              || imports->OriginalFirstThunk == 0) continue;
-          auto* names = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->OriginalFirstThunk);
-          auto* addresses = reinterpret_cast<const IMAGE_THUNK_DATA*>(game_begin + imports->FirstThunk);
-          for (; names->u1.AddressOfData != 0; ++names, ++addresses) {
-            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
-            const auto* import = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(game_begin + names->u1.AddressOfData);
-            if (std::strcmp(import->Name, "CreateDXGIFactory") == 0) {
-              // ReShade can already have redirected the executable import to its own entry point.
-              factory_import = reinterpret_cast<void*>(addresses->u1.Function);
-              break;
-            }
-          }
-        }
+        void* factory_import = nier_automata::executable::FindImport("dxgi.dll", "CreateDXGIFactory");
         // Cover factory creation during early loading and later display rebuilds.
         if (factory_import == nullptr || !renodx::utils::iat_hook::PatchIAT("dxgi.dll", factory_import, reinterpret_cast<void*>(&OnCreateDXGIFactory), reinterpret_cast<void**>(&original_create_dxgi_factory), "CreateDXGIFactory")) {
           reshade::log::message(reshade::log::level::error,
@@ -469,13 +482,38 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
           }
         }
       }
+      if (reserved == nullptr) {
+        nier_automata::movie_mods::Shutdown();
+      }
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
+      reshade::unregister_event<reshade::addon_event::create_resource>(nier_automata::texture_mods::OnCreateResource);
+      reshade::unregister_event<reshade::addon_event::init_resource>(nier_automata::texture_mods::OnInitResource);
+      reshade::unregister_event<reshade::addon_event::destroy_resource>(
+          nier_automata::texture_mods::OnDestroyResource);
+      reshade::unregister_event<reshade::addon_event::init_resource_view>(
+          nier_automata::texture_mods::OnInitResourceView);
+      reshade::unregister_event<reshade::addon_event::destroy_resource_view>(
+          nier_automata::texture_mods::OnDestroyResourceView);
+      reshade::unregister_event<reshade::addon_event::push_descriptors>(
+          nier_automata::texture_mods::OnPushDescriptors);
       reshade::unregister_overlay("NieR:Automata", OnOverlay);
       reshade::unregister_addon(module);
       break;
   }
   renodx::mods::swapchain::Use(reason, &shader_injection);
   renodx::mods::shader::Use(reason, custom_shaders, &shader_injection);
+  if (reason == DLL_PROCESS_ATTACH) {
+    // After the shared modules: their push_descriptors handlers re-push whole updates,
+    // and the texture mod substitution has to be the last word on each slot.
+    reshade::register_event<reshade::addon_event::create_resource>(nier_automata::texture_mods::OnCreateResource);
+    reshade::register_event<reshade::addon_event::init_resource>(nier_automata::texture_mods::OnInitResource);
+    reshade::register_event<reshade::addon_event::destroy_resource>(nier_automata::texture_mods::OnDestroyResource);
+    reshade::register_event<reshade::addon_event::init_resource_view>(
+        nier_automata::texture_mods::OnInitResourceView);
+    reshade::register_event<reshade::addon_event::destroy_resource_view>(
+        nier_automata::texture_mods::OnDestroyResourceView);
+    reshade::register_event<reshade::addon_event::push_descriptors>(nier_automata::texture_mods::OnPushDescriptors);
+  }
   return TRUE;
 }

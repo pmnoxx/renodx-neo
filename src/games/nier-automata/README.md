@@ -78,6 +78,14 @@ The addon checks the PE identity and separate code/reference anchors and leaves
 unrecognized or already patched versions untouched. Do not combine it with
 another FPS unlocker. VSync, driver caps and GPU load can still limit FPS.
 
+The WAX mod loader (`dinput8.dll`) applies its own 60 FPS limit unless
+`"uncap_fps": true` is set in `<game>\wax\config.json`. When Unlock FPS is on
+and that file exists, the addon sets the option at startup (only that value is
+edited). WAX reads its config before add-ons load, so the overlay shows a red
+warning and the change applies after one restart. To verify: set `uncap_fps` to
+`false`, launch (log reports the write, game stays at 60), relaunch and check
+that game updates reach the FPS target.
+
 High FPS can affect frame-counted scripts and menus. Use the live 60 FPS switch
 for affected sequences. Pause-state timer updates are capped at 60 automatically;
 cutscene, hacking and menu detection is not otherwise implemented. Verify game
@@ -126,7 +134,7 @@ The overlay's `Disable camera motion blur` option replaces pixel shader `0x83015
 
 ## Effect toggles
 
-The **Effects** section has five checkboxes, all off by default. They apply in every tone mapper mode, including Off.
+The **Effects** section has five checkboxes. Disable bloom is on by default; the others are off. They apply in every tone mapper mode, including Off.
 
 - **Disable bloom**: drops the bloom texture added before tone mapping.
 - **Disable vignette**: removes the screen-edge darkening.
@@ -134,12 +142,65 @@ The **Effects** section has five checkboxes, all off by default. They apply in e
 - **Disable game tone mapping**: skips the game's rational curve, so the exposed scene clips at SDR white. This changes Vanilla and Off only, because ACES and RenoDRT already replace the curve.
 - **Disable sharpening**: in `casshadersharpen` the output is the centre texel. In `casshaderupsampleandsharpen` the sharpening weights are zero, leaving an exactly normalized adaptive bilinear upscale.
 
-Under `NIER_VERIFY_MODE` the toggles are compile-time `false`, so the Off-mode proof against the game bytecode still covers the default settings.
+Under `NIER_VERIFY_MODE` the toggles are compile-time `false`, so the Off-mode proof against the game bytecode covers the toggles-off path; with default settings Off differs from the game only by the dropped bloom.
 
 ## LOD distance
 
 `LOD distance` (1x-20x, default 1x = vanilla) keeps full-detail models such as bushes and props out to a multiple of the game's LOD distance. Each model owns screen-size LOD thresholds (`objReadInfo.bxm` `DistRate0-3` or class defaults); the addon tracks model LOD setup/teardown (RVAs `1951B0`/`1948A0`) and divides those thresholds once per frame. Installed on first use; models loaded before then keep vanilla LODs until the area reloads. Verified in game by scaling live thresholds to 5%: bushes and a storage tank kept their full-detail meshes.
 
+## Graphics tweaks
+
+The overlay's **Graphics tweaks** section (graphics_tweaks.hpp) reimplements graphics and start-up tweaks of emoose's Automata-LodMod for the supported Steam build. Everything is off or at the game default until changed, and all of it is disabled when the executable CRC32 check fails. Each feature checks its own original bytes and disables only itself on a mismatch; failures are listed in red at the bottom of the section and in `ReShade.log`. All settings are stored in the ReShade config section `renodx-nier_automata`.
+
+**Live**
+
+- **LOD distance**: see above.
+- **Shadow distance multiplier/minimum/maximum/PSS, filter strength bias/minimum/maximum**: the static shadow system object `F51540` starts with the current `cShadowParam` (split points +0x14..+0x20, blur strength +0x34). Each frame `797930` steps area transitions on those fields and then calls `7801E0` once per cascade, which reads them directly. A hook on `7801E0` (installed on first use) writes the adjusted values for the duration of the call and puts the game's values back, so nothing compounds and transitions stay exact. With PSS above 0 the second and third split points come from the PSS value alone, so multiplier/minimum/maximum then only move the first.
+- **Disable manual culling**: hooks the cull query `7F4510` and update `846680` on first use. Real geometry is always shown; names that look like stand-ins (`low`, `lod`, `dummy`, `distant`, `far` without `nolow`) and the models in config key `ManualCullingKeepModels` (`name:area|name:area`, area 0 = every area, read at start-up, default written on first run) keep the game's answer. Hard filters are not implemented.
+- **Real-time shadow models** (red, experimental): two code patches in the mesh shadow submit code (`848319`, `84822D`), written and restored by the checkbox.
+- **Force shadows on all models** (red, experimental): patch at `8482FA`, plus a hook on model setup `84D180` that sets the shadow-caster bit on every mesh and remembers the game's bits. Unchecking restores them for models still loaded. Models loaded before the option was first enabled in a session are not tracked and change when their area reloads. The reference mod's model filter (`ENKEI`, `landscape`, `GROUND_g11118jimen`) is not implemented, so those models cast shadows too.
+
+- **Ambient occlusion strength** (0-4, default 1) and **Disable ambient occlusion**: act on pixel shader `0x376F65B3` (`shader.dat/saoupsampling.pso`, the depth-aware upsample that writes the final AO term, 1 = unoccluded). The replacement runs the unmodified decompile of the game shader and returns `pow(ao, strength)`; the checkbox sends strength 0, which returns 1 without sampling. At strength 1 the game's own shader is left in place. The value reaches the shader as `shader_injection.ambient_occlusion_strength`, updated each present. The earlier AO passes still run. Saved as `AmbientOcclusionStrength` and `DisableAmbientOcclusion`. The checkbox is verified in game; the slider is not yet.
+
+**Requires restart**
+
+- **AO width/height multiplier** (0.1-2): scales `g_HiZMapTexture` and `g_SaoTexture_Half[0/1]` through a hook on the texture-create function `248160`, filtered by the three call sites in `774010`. Rebuilding these targets while the game runs was tried and crashes the game, so this stays restart-only.
+- **Shadow resolution** (2048-16384): patches the size multiplier in `772750`, the cascade viewport shift/size in `77F860`/`77FA40` and the half shadow map size. On the first `cShadowParam` load the addon compares the game's multiplier `F513E0` with the patch and reverts the sites if the game initialised first.
+- **Communication screen resolution** (256-2048): size immediates at `772998` and `77541C`.
+- **Skip intro movies**, **Skip booting screens**, **Title screen opens Load Game**: small code patches at `7610B6`, `97CC99`/`97CCBC`/`97CCD1` and `990E4F`/`990E5F`/`990FD6`/`990FDB`.
+
+Patches and hooks are applied in `init_device` or by the checkbox that owns them.
+
+Verification so far is static: all expected bytes, hook entries and type-name strings were compared with the on-disk executable and match, and the hooked functions' argument counts were read from the game code. Nothing has been confirmed in game yet; in particular, the shadow hook's effect has not been observed in game. To verify: with all defaults the log must contain no `graphics tweaks:` hook or patch lines; move each live control and watch for the effect without reloading; set each restart option, relaunch and confirm its `applied`/`hook installed` line plus the visible effect (DevKit resource sizes for AO, shadow and communication targets).
+
 ## Save anywhere (testing)
 
 Off by default. Hooks the game's save permission check (RVA `9CA540`) and the `@SAVE` scenario state test (RVA `38C8C0`, only for the `@SAVE` object) so pause menu Save stays enabled where the game greys it out, without changing stored script state. Saving during scripted events or bosses can create saves that resume in a broken state; use a spare slot and back up saves. Verified in game: Save enabled in a greyed-out area, save loaded correctly (state-memory variant).
+
+## Movie mods
+
+Replacement cutscene movies, such as AI-upscaled 4K packs, load without Automata-LodMod and without touching game files. Put the `.usm` files in a `movie` folder next to `NieRAutomata.exe`; each is played in place of `data\movie\<same name>.usm` (`movie_mods.hpp`).
+
+- The addon redirects the executable's `CreateFileA`/`CreateFileW` imports for paths ending in `data\movie\<name>.usm`. If the replacement cannot be opened the game's file is used.
+- The game sizes its movie heaps for 1920x1080. For larger replacements the addon multiplies `MOVIE FILE` (`86BE47`) and `MOVIE VRAM` (`86C0AF`) by `ceil(largest pixels / 2073600)` (4 for 3840x2160, at most 16) and grows their parents `FILE ROOT` (`86BA05`) and `TEXTURE ROOT` (`86BA2B`) by the same amount. This happens when the addon loads and needs the supported executable; it is skipped, with a red overlay message, if the game already created its heaps. Replacements are not loaded while the buffers are too small.
+- Frame size is read from the MPEG sequence header of each file at start-up. H.264 movies are not supported (the game has no decoder for them).
+- The **Movie mods** overlay section has the `Load replacement movies` checkbox (default on, saved as `ReplacementMovies`; unticking is live, ticking needs a restart when larger buffers are required), **Open movie folder**, the number of replacements found with the largest size, the buffer multiplier, and how many movies the game opened this session with how many were replaced. **Opened movies** lists each file with its open count.
+- `ReShade.log` gets one `NieR:Automata movie mods:` line at start-up and one per movie on its first open.
+
+Verified on the supported executable with 46 3840x2160 files: log reports `movie buffers 4x`; live heap ranges are `FF00000` and `7800000` bytes; the logo movies play and are logged as `game file`. Playback of a replaced cutscene is not yet confirmed in game. To verify: play a cutscene whose file exists in `movie` and check the overlay count and the `(replaced)` log line.
+
+## Texture mods
+
+Texture mods can be switched on and off while the game runs; no game file is modified. Each subfolder of `Mods` next to `NieRAutomata.exe` is one mod. Any `<HASH>.dds` inside it, at any depth, replaces the texture whose top mip level has that CRC32C. Texture mods published for FAR (Fix Automata Resolution) use the same file naming, so they can be extracted into a subfolder as they are, without FAR installed. Implemented independently on ReShade add-on events (`texture_mods.hpp`); no FAR or Special K code is used.
+
+How it works: the game's own texture is left untouched. The addon hashes it at creation, creates the replacement texture beside it and binds the replacement's view whenever the game binds a shader resource view of the original. Enabling or disabling a mod therefore only changes which view gets bound. The original texture stays in video memory while it is replaced.
+
+- Supported files: DXT1/3/5, ATI1/ATI2 (BC4/BC5), 32-bit RGBA/BGRA and DX10-header 2D textures, with any mip count. Replacements may differ in size and format from the original; sRGB or typeless storage follows the game's texture.
+- The **Texture mods** overlay section lists every mod folder with a checkbox and its texture count. Ticking or unticking applies immediately to loaded textures and is remembered in `ReShade.ini` (`[renodx-nier_automata-texture-mods]`). Folders without `<HASH>.dds` files are listed greyed out.
+- **Open Mods folder** opens the folder in Explorer, creating it if needed. **Rescan** picks up added, removed or changed folders and applies them at once.
+- When two enabled mods replace the same texture, the folder whose name sorts first wins and the other is reported in `ReShade.log`.
+- Replacements and rejected files are written to `ReShade.log` (`NieR:Automata texture mods:`).
+- A mod made for an older game version does nothing for textures the game has since changed, because their hashes differ. Example: the menu grid, vignette and grain sheet was `013F2718` (2048x1024) and is `D93E5729` (4096x4096, `ui/ui_core.dtt`) in the supported Steam build; the loading-screen grid `713B879E` (`ui/ui_loading.dtt`) is unchanged.
+- Mods that add game content (items, text, behaviours), such as mods made for the WAX framework, are not texture mods and are not handled here.
+
+Manual check: put a transparent 4x4 DXT1 file at `Mods\None\D93E5729.dds`, start the game and open Options; the background grid is gone. Untick `None` in the overlay; the grid returns without a restart. Tick it again; the grid disappears.

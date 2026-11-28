@@ -16,6 +16,8 @@ struct ShaderInjectData {
   float disable_auto_exposure;
   float disable_game_tone_map;
   float disable_sharpening;
+  // 1 = the game's ambient occlusion, 0 = none.
+  float ambient_occlusion_strength;
 };
 #ifndef __cplusplus
 cbuffer shader_injection : register(b13) {

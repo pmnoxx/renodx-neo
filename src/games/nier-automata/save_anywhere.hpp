@@ -15,6 +15,7 @@
 #include <include/reshade.hpp>
 
 #include "./executable.hpp"
+#include "./overlay.hpp"
 
 namespace nier_automata::save_anywhere {
 
@@ -100,18 +101,19 @@ void Initialize(uintptr_t base) {
 void OnOverlay() {
   bool value = enabled.load(std::memory_order_relaxed);
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.35f, 0.35f, 1.f));
-  const bool changed = ImGui::Checkbox("Save anywhere (testing)", &value);
+  bool changed = ImGui::Checkbox("Save anywhere (testing)", &value);
   ImGui::PopStyleColor();
-  if (changed) {
-    enabled.store(value, std::memory_order_relaxed);
-    reshade::set_config_value(nullptr, "renodx-nier_automata", "SaveAnywhere", uint32_t(value));
-    if (value) Install();
-  }
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Enables Save in the pause menu wherever the game normally greys it out.\n"
         "Saving during scripted events or boss fights can produce a save that resumes in a broken state.\n"
         "Use a separate save slot and back up your saves.");
+  }
+  changed |= overlay::ResetToDefault("SaveAnywhere", &value, false);
+  if (changed) {
+    enabled.store(value, std::memory_order_relaxed);
+    reshade::set_config_value(nullptr, "renodx-nier_automata", "SaveAnywhere", uint32_t(value));
+    if (value) Install();
   }
   if (value) ImGui::TextUnformatted(status);
 }
