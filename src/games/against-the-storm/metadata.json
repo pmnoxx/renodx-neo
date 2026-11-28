@@ -1,0 +1,8 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/gh/clshortfuse/renodx/renodx-metadata-schema.json",
+  "id": "against-the-storm",
+  "title": "Against the Storm",
+  "deploy": {
+    "steam_appid": 1336490
+  }
+}
