@@ -15,15 +15,15 @@ RenoDX, short for "Renovation Engine for DirectX Games", is a toolset to mod gam
 
 The games maintained in this fork are listed in [games.json](./games.json). This list controls both `build.cmd` and the snapshot build. Entries use the CMake target/folder names under `src/games`.
 
-| Game | Snapshot download | Latest source update |
-| --- | --- | --- |
-| Muv-Luv Alternative Total Eclipse | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Ftotal-eclipse&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/total-eclipse) |
-| NieR:Automata | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fnier-automata&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/nier-automata) |
-| Azur Promilia | [renodx-azur-promilia.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-azur-promilia.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fazur-promilia&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/azur-promilia) |
-| Darkest Dungeon II | [renodx-darkestdungeon2.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-darkestdungeon2.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fdarkestdungeon2&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/darkestdungeon2) |
-| Heaven Burns Red | [renodx-heavenburnsred.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-heavenburnsred.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fheavenburnsred&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/heavenburnsred) |
+| Game | Version | Snapshot download | Latest source update |
+| --- | --- | --- | --- |
+| Muv-Luv Alternative Total Eclipse | Snapshot | [renodx-total-eclipse.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-total-eclipse.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Ftotal-eclipse&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/total-eclipse) |
+| NieR:Automata | Snapshot | [renodx-nier-automata.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-nier-automata.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fnier-automata&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/nier-automata) |
+| Azur Promilia | 0.4.0 | [renodx-azur-promilia.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-azur-promilia.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fazur-promilia&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/azur-promilia) |
+| Darkest Dungeon II | Snapshot | [renodx-darkestdungeon2.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-darkestdungeon2.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fdarkestdungeon2&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/darkestdungeon2) |
+| Heaven Burns Red | Snapshot | [renodx-heavenburnsred.addon64](https://github.com/pmnoxx/renodx-neo/releases/download/snapshot/renodx-heavenburnsred.addon64) | [![Snapshot](https://img.shields.io/github/last-commit/pmnoxx/renodx-neo/main?path=src%2Fgames%2Fheavenburnsred&label=Snapshot)](https://github.com/pmnoxx/renodx-neo/commits/main/src/games/heavenburnsred) |
 
-Snapshot badges show the latest commit to each game's source folder on `main`.
+Addons without a release version are listed as Snapshot. Their file versions use the build timestamp. Snapshot badges show the latest commit to each game's source folder on `main`.
 
 All mods are 64-bit. Download the latest builds from the [snapshot release](https://github.com/pmnoxx/renodx-neo/releases/tag/snapshot). Source code for other RenoDX mods is available under [src/games](./src/games); they are not included in this fork's snapshot.
 

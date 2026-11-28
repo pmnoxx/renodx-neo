@@ -1,6 +1,6 @@
 # RenoDX for Azur Promilia
 
-**Version:** 0.2.0
+**Version:** 0.4.0
 
 An experimental RenoDX addon for Azur Promilia. It upgrades the game's post-processing and UI resources for HDR output and provides tone mapping, color grading, display output, and optional UI ID hiding controls.
 

@@ -409,7 +409,7 @@ bool initialized = false;
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Azur Promilia v0.2.0";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Azur Promilia v0.4.0";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
@@ -620,7 +620,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
 
         settings.push_back(new renodx::utils::settings::Setting{
             .value_type = renodx::utils::settings::SettingValueType::TEXT,
-            .label = "Version: 0.2.0",
+            .label = "Version: 0.4.0",
             .section = "Misc",
         });
 

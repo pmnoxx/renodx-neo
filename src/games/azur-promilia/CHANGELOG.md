@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-27
 
 - Preserve HDR highlights through all four `PostProcess2D` shader variants, including when the game applies a color LUT.
 
