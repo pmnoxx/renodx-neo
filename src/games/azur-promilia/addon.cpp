@@ -409,7 +409,7 @@ bool initialized = false;
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Azur Promilia";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Azur Promilia v0.2.0";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
@@ -582,7 +582,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           auto* setting = new renodx::utils::settings::Setting{
               .key = "Upgrade_" + key,
               .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-              .default_value = 0.f,
+              .default_value = (key == "R8G8B8A8_TYPELESS" || key == "R8G8B8A8_UNORM" || key == "R8G8B8A8_UNORM_SRGB")
+                                   ? UPGRADE_TYPE_OUTPUT_SIZE
+                                   : UPGRADE_TYPE_NONE,
               .label = key,
               .section = "Resource Upgrades",
               .labels = {
@@ -615,6 +617,12 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
             reshade::log::message(reshade::log::level::info, s.str().c_str());
           }
         }
+
+        settings.push_back(new renodx::utils::settings::Setting{
+            .value_type = renodx::utils::settings::SettingValueType::TEXT,
+            .label = "Version: 0.2.0",
+            .section = "Misc",
+        });
 
         initialized = true;
       }
