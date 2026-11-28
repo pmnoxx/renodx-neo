@@ -73,7 +73,7 @@ void main(
   r0.x = asuint(exp2(asfloat(r0.x)));
   r0.x = asuint(-0.189999998 + asfloat(r0.x));
   r0.x = asuint(cb1[1].z * asfloat(r0.x));
-  // FP16 RT does not clamp blend alpha like RGBA8 UNORM; noise term goes <0/>1 and blacks out the ground
-  o0.w = saturate(asfloat(r0.z) * asfloat(r0.x));
+  o0.w = asfloat(r0.z) * asfloat(r0.x);
+  o0.w = saturate(o0.w);
   return;
 }
