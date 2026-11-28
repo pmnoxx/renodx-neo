@@ -143,6 +143,18 @@ historical contents of intermediate resources. Native HDR pixels are retained
 without an SDR tone-map. Starting another recording clears previous captures;
 export before starting the next one.
 
+### Cached scene resources
+
+Some games render a scene once, keep that texture, and only sample it on later frames.
+A snapshot started after that write only shows the blit. `devkit_list_cached_resources`
+keeps per-texture write and sample frame counts across presents, including when no snapshot
+is running. A reused scene texture has a high `framesSinceWrite` while `sampleFrames` keeps
+growing. `lastWriterShader` is the pixel or compute shader of the last render-target write.
+`neverWritten` means the texture was only sampled or filled before tracking started.
+`devkit_reset_resource_activity` clears the counters so a new scene can be measured from zero.
+Defaults: sampled at least 4 recent frames, and not written for 20 frames. Up to 4096 resources
+are tracked. Copy destinations count as writes.
+
 For a new game, work backward from the end of the frame.
 
 1. Connect and choose the active device.

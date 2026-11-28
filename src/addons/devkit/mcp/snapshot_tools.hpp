@@ -55,6 +55,8 @@ struct ToolContext {
   std::function<ToolResult(std::uint32_t device_index, std::uint32_t frame_count, std::uint32_t max_records,
                            const std::optional<std::vector<std::uint32_t>>& known_hashes)> queue_snapshot;
   std::function<ToolResult(std::uint32_t device_index)> dump_unknown_captures;
+  std::function<ToolResult(std::uint32_t device_index, std::uint32_t min_sample_frames, std::uint32_t min_frames_since_write, std::uint32_t limit)> list_cached_resources;
+  std::function<ToolResult(std::uint32_t device_index)> reset_resource_activity;
 };
 
 namespace internal {
@@ -463,6 +465,24 @@ inline ToolResult HandleQueueSnapshotTool(const json& arguments, const ToolConte
       mcp_arguments::ValidateRange("frameCount", mcp_arguments::GetOptional<std::uint32_t>(arguments, "frameCount").value_or(1u), 1u, 3600u),
       mcp_arguments::ValidateRange("maxRecords", mcp_arguments::GetOptional<std::uint32_t>(arguments, "maxRecords").value_or(20000u), 1u, 100000u),
       known_hashes);
+}
+
+inline ToolResult HandleListCachedResourcesTool(const json& arguments, const ToolContext& context) {
+  if (!context.list_cached_resources) {
+    throw std::runtime_error("The snapshot tool context is not configured.");
+  }
+  return context.list_cached_resources(
+      internal::ResolveDeviceIndex(arguments, context),
+      mcp_arguments::ValidateRange("minSampleFrames", mcp_arguments::GetOptional<std::uint32_t>(arguments, "minSampleFrames").value_or(4u), 1u, 100000u),
+      mcp_arguments::ValidateRange("minFramesSinceWrite", mcp_arguments::GetOptional<std::uint32_t>(arguments, "minFramesSinceWrite").value_or(20u), 1u, 1000000u),
+      mcp_arguments::ValidateRange("limit", mcp_arguments::GetOptional<std::uint32_t>(arguments, "limit").value_or(32u), 1u, 200u));
+}
+
+inline ToolResult HandleResetResourceActivityTool(const json& arguments, const ToolContext& context) {
+  if (!context.reset_resource_activity) {
+    throw std::runtime_error("The snapshot tool context is not configured.");
+  }
+  return context.reset_resource_activity(internal::ResolveDeviceIndex(arguments, context));
 }
 
 }  // namespace renodx::addons::devkit::mcp::snapshot_tools

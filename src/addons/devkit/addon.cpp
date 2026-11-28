@@ -287,6 +287,21 @@ struct SnapshotResourceUsage {
   bool seen_rtv = false;
 };
 
+// Frames a texture is written versus sampled, including outside snapshot captures.
+// A scene computed once and then reused has a small write_frames and a large frames_since_write.
+struct ResourceActivity {
+  uint32_t write_frames = 0u;
+  uint32_t sample_frames = 0u;
+  uint32_t copy_in_frames = 0u;
+  uint32_t last_write_frame = 0u;
+  uint32_t last_sample_frame = 0u;
+  uint32_t last_writer_shader = 0u;
+  uint32_t width = 0u;
+  uint32_t height = 0u;
+  reshade::api::format format = reshade::api::format::unknown;
+  bool described = false;
+};
+
 struct SnapshotRow {
   enum class Kind : std::uint8_t {
     DRAW,
@@ -333,6 +348,8 @@ struct __declspec(uuid("3224946b-5c5f-478a-8691-83fbb9f88f1b")) CommandListData 
   std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> compute_uav_binds;
   std::map<std::pair<uint32_t, uint32_t>, reshade::api::buffer_range> constants;
   std::map<uint32_t, ResourceViewDetails> render_targets;
+  std::map<std::pair<uint32_t, uint32_t>, uint64_t> activity_pixel_srvs;
+  std::map<std::pair<uint32_t, uint32_t>, uint64_t> activity_compute_srvs;
   std::optional<reshade::api::blend_desc> blend_desc = std::nullopt;
   std::optional<reshade::api::rasterizer_desc> rasterizer_desc = std::nullopt;
   uint32_t draw_counter = 0u;
@@ -422,6 +439,8 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
 
   std::unordered_map<uint32_t, std::set<uint32_t>> shader_draw_indexes;
   std::unordered_map<uint64_t, SnapshotResourceUsage> resource_usage_by_handle;
+  std::unordered_map<uint64_t, ResourceActivity> resource_activity;
+  uint32_t activity_frame = 0u;
   std::vector<SnapshotRow> snapshot_rows;
   uint32_t snapshot_row_layout_key = 0u;
   uint32_t snapshot_rows_generation = 0u;
@@ -4271,6 +4290,80 @@ void ProcessPendingLiveShaderRequests(
         return ToolResult{.text = directory.string(),
                           .structured_content = {{"directory", directory.string()}, {"screenshotCount", captures.size()}}};
       },
+      .list_cached_resources = [](uint32_t device_index, uint32_t min_sample_frames, uint32_t min_frames_since_write, uint32_t limit) {
+        std::shared_lock list_lock(device_data_list_mutex);
+        if (device_index >= device_data_list.size()) {
+          throw std::runtime_error(std::format("Device #{} is not available.", device_index));
+        }
+        auto* device_data = device_data_list[device_index];
+        struct Candidate {
+          uint64_t handle = 0u;
+          ResourceActivity activity = {};
+          uint32_t frames_since_write = 0u;
+        };
+        std::vector<Candidate> candidates;
+        uint32_t frame = 0u;
+        size_t tracked = 0u;
+        {
+          std::shared_lock lock(device_data->mutex);
+          frame = device_data->activity_frame;
+          tracked = device_data->resource_activity.size();
+          candidates.reserve(device_data->resource_activity.size());
+          for (const auto& [handle, activity] : device_data->resource_activity) {
+            if (activity.sample_frames < min_sample_frames) continue;
+            if (frame < activity.last_sample_frame || frame - activity.last_sample_frame > 2u) continue;
+            const auto since_write = activity.last_write_frame == 0u ? frame : frame - activity.last_write_frame;
+            if (since_write < min_frames_since_write) continue;
+            candidates.push_back({handle, activity, since_write});
+          }
+        }
+        std::ranges::sort(candidates, [](const Candidate& a, const Candidate& b) {
+          if (a.frames_since_write != b.frames_since_write) return a.frames_since_write > b.frames_since_write;
+          return a.activity.sample_frames > b.activity.sample_frames;
+        });
+        if (candidates.size() > limit) candidates.resize(limit);
+        json resources = json::array();
+        for (const auto& candidate : candidates) {
+          resources.push_back({
+              {"resourceHandle", std::format("0x{:016X}", candidate.handle)},
+              {"width", candidate.activity.width},
+              {"height", candidate.activity.height},
+              {"format", StreamToString(candidate.activity.format)},
+              {"writeFrames", candidate.activity.write_frames},
+              {"sampleFrames", candidate.activity.sample_frames},
+              {"copyInFrames", candidate.activity.copy_in_frames},
+              {"framesSinceWrite", candidate.frames_since_write},
+              {"lastWriterShader", candidate.activity.last_writer_shader == 0u ? json(nullptr) : json(FormatShaderHash(candidate.activity.last_writer_shader))},
+              {"neverWritten", candidate.activity.write_frames == 0u},
+          });
+        }
+        return ToolResult{
+            .text = std::format("Device #{} frame {} has {} cached resource(s) ({} tracked).", device_index, frame, resources.size(), tracked),
+            .structured_content = {
+                {"deviceIndex", device_index},
+                {"activityFrame", frame},
+                {"trackedResources", tracked},
+                {"minSampleFrames", min_sample_frames},
+                {"minFramesSinceWrite", min_frames_since_write},
+                {"resources", resources},
+            },
+        };
+      },
+      .reset_resource_activity = [](uint32_t device_index) {
+        std::shared_lock list_lock(device_data_list_mutex);
+        if (device_index >= device_data_list.size()) {
+          throw std::runtime_error(std::format("Device #{} is not available.", device_index));
+        }
+        auto* device_data = device_data_list[device_index];
+        std::unique_lock lock(device_data->mutex);
+        const auto cleared = device_data->resource_activity.size();
+        device_data->resource_activity.clear();
+        device_data->activity_frame = 0u;
+        return ToolResult{
+            .text = std::format("Cleared {} resource activity entr{} on device #{}.", cleared, cleared == 1u ? "y" : "ies", device_index),
+            .structured_content = {{"deviceIndex", device_index}, {"cleared", cleared}},
+        };
+      },
   };
 }
 
@@ -4765,10 +4858,85 @@ void OnBindPipeline(
   }
 }
 
+constexpr uint32_t kMaxResourceActivityEntries = 4096u;
+
+reshade::api::resource ActivityResourceFromView(reshade::api::device* device, reshade::api::resource_view view) {
+  reshade::api::resource resource = {0u};
+  if (view.handle == 0u || device == nullptr) return resource;
+  renodx::utils::resource::GetResourceViewInfo(view, [&](const renodx::utils::resource::ResourceViewInfo& info) {
+    resource = info.original_resource.handle != 0u ? info.original_resource : info.clone_resource;
+  });
+  if (resource.handle == 0u) resource = device->get_resource_from_view(view);
+  return resource;
+}
+
+void TouchResourceActivity(
+    DeviceData* device_data,
+    reshade::api::device* device,
+    reshade::api::resource resource,
+    bool is_write,
+    bool is_copy,
+    uint32_t shader_hash) {
+  if (device_data == nullptr || device == nullptr || resource.handle == 0u) return;
+  std::unique_lock lock(device_data->mutex);
+  auto iterator = device_data->resource_activity.find(resource.handle);
+  if (iterator == device_data->resource_activity.end()) {
+    if (device_data->resource_activity.size() >= kMaxResourceActivityEntries) return;
+    iterator = device_data->resource_activity.emplace(resource.handle, ResourceActivity{}).first;
+  }
+  auto& activity = iterator->second;
+  if (!activity.described) {
+    const auto desc = device->get_resource_desc(resource);
+    activity.width = desc.texture.width;
+    activity.height = desc.texture.height;
+    activity.format = desc.texture.format;
+    activity.described = true;
+  }
+  if (is_write) {
+    if (activity.last_write_frame != device_data->activity_frame) {
+      ++activity.write_frames;
+      activity.last_write_frame = device_data->activity_frame;
+    }
+    if (is_copy && activity.copy_in_frames < activity.write_frames) ++activity.copy_in_frames;
+    if (shader_hash != 0u) activity.last_writer_shader = shader_hash;
+    return;
+  }
+  if (activity.last_sample_frame != device_data->activity_frame) {
+    ++activity.sample_frames;
+    activity.last_sample_frame = device_data->activity_frame;
+  }
+}
+
+void TrackCachedResourceActivity(
+    reshade::api::command_list* cmd_list,
+    reshade::api::device* device,
+    DeviceData* device_data,
+    DrawDetails::DrawMethods draw_method) {
+  const bool is_dispatch = draw_method == DrawDetails::DrawMethods::DISPATCH;
+  const auto shader_hash = renodx::utils::state::GetCurrentShaderHash(
+      cmd_list,
+      is_dispatch ? reshade::api::pipeline_stage::compute_shader : reshade::api::pipeline_stage::pixel_shader);
+  if (!is_dispatch) {
+    for (const auto render_target : renodx::utils::swapchain::GetRenderTargets(cmd_list)) {
+      TouchResourceActivity(device_data, device, ActivityResourceFromView(device, render_target), true, false, shader_hash);
+    }
+  }
+  auto* command_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  if (command_list_data == nullptr) return;
+  const auto& views = is_dispatch ? command_list_data->activity_compute_srvs : command_list_data->activity_pixel_srvs;
+  for (const auto& [slot, view_handle] : views) {
+    (void)slot;
+    TouchResourceActivity(device_data, device, ActivityResourceFromView(device, {view_handle}), false, false, 0u);
+  }
+}
+
 bool OnCopyResource(
     reshade::api::command_list* cmd_list,
     reshade::api::resource source,
     reshade::api::resource dest) {
+  if (auto* device = cmd_list->get_device(); device != nullptr) {
+    TouchResourceActivity(renodx::utils::data::Get<DeviceData>(device), device, dest, true, true, 0u);
+  }
   reshade::api::device* active_snapshot_device = snapshot_device;
   if (active_snapshot_device == nullptr) return false;
 
@@ -4820,6 +4988,9 @@ bool OnCopyTextureRegion(
     uint32_t dest_subresource,
     const reshade::api::subresource_box* dest_box,
     reshade::api::filter_mode filter) {
+  if (auto* copy_device = cmd_list->get_device(); copy_device != nullptr) {
+    TouchResourceActivity(renodx::utils::data::Get<DeviceData>(copy_device), copy_device, dest, true, true, 0u);
+  }
   reshade::api::device* active_snapshot_device = snapshot_device;
   if (active_snapshot_device == nullptr) return false;
 
@@ -4866,6 +5037,7 @@ void OnDestroyResource(reshade::api::device* device, reshade::api::resource reso
   auto* data = renodx::utils::data::Get<DeviceData>(device);
   if (data == nullptr) return;
   const std::unique_lock lock(data->mutex);
+  data->resource_activity.erase(resource.handle);
   auto pair = data->preview_srvs.find(resource.handle);
   if (pair == data->preview_srvs.end()) return;
   auto srvs = pair->second;
@@ -4883,11 +5055,21 @@ void OnPushDescriptors(
     reshade::api::pipeline_layout layout,
     uint32_t layout_param,
     const reshade::api::descriptor_table_update& update) {
-  if (cmd_list->get_device() != snapshot_device) return;
+  auto* device = cmd_list->get_device();
+  const bool capture_snapshot = device == snapshot_device;
   auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
   if (data == nullptr) return;
+  if (!capture_snapshot) {
+    switch (update.type) {
+      case reshade::api::descriptor_type::shader_resource_view:
+      case reshade::api::descriptor_type::buffer_shader_resource_view:
+      case reshade::api::descriptor_type::sampler_with_resource_view:
+        break;
+      default:
+        return;
+    }
+  }
 
-  auto* device = cmd_list->get_device();
   const auto resolve_directx_slot = [=](reshade::api::descriptor_type type,
                                         uint32_t binding,
                                         uint32_t* dx_register_index,
@@ -4971,6 +5153,14 @@ void OnPushDescriptors(
 
         auto slot = std::pair<uint32_t, uint32_t>(pair_a, pair_b);
 
+        if (renodx::utils::bitwise::HasFlag(stages, reshade::api::shader_stage::pixel) && !is_uav) {
+          if (view.handle == 0u) data->activity_pixel_srvs.erase(slot);
+          else data->activity_pixel_srvs[slot] = view.handle;
+        } else if (renodx::utils::bitwise::HasFlag(stages, reshade::api::shader_stage::compute) && !is_uav) {
+          if (view.handle == 0u) data->activity_compute_srvs.erase(slot);
+          else data->activity_compute_srvs[slot] = view.handle;
+        }
+        if (!capture_snapshot) continue;
         if (view.handle == 0u) {
           destination->erase(slot);
         } else {
@@ -5039,6 +5229,7 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
 
   auto* device_data = renodx::utils::data::Get<DeviceData>(device);
   if (device_data == nullptr) return false;
+  TrackCachedResourceActivity(cmd_list, device, device_data, draw_method);
 
   struct BoundShader {
     reshade::api::pipeline_stage stage;
@@ -9392,6 +9583,10 @@ void OnPresent(
 
   DeviceData* data = renodx::utils::data::Get<DeviceData>(device);
   if (data == nullptr) return;
+  {
+    std::unique_lock activity_lock(data->mutex);
+    if (data->activity_frame != std::numeric_limits<uint32_t>::max()) ++data->activity_frame;
+  }
   const auto get_data = [&]() -> DeviceData* {
     return data;
   };

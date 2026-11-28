@@ -154,6 +154,14 @@ inline void RegisterTools(renodx::utils::mcp::Server& server, const Registration
     const auto tool_context = build_snapshot_tools_context();
     return tool_context.dump_unknown_captures(snapshot_tools::internal::ResolveDeviceIndex(arguments, tool_context));
   });
+  register_tool("devkit_list_cached_resources", [build_snapshot_tools_context = context.build_snapshot_tools_context](
+                                                    const renodx::utils::mcp::json& arguments) {
+    return snapshot_tools::HandleListCachedResourcesTool(arguments, build_snapshot_tools_context());
+  });
+  register_tool("devkit_reset_resource_activity", [build_snapshot_tools_context = context.build_snapshot_tools_context](
+                                                      const renodx::utils::mcp::json& arguments) {
+    return snapshot_tools::HandleResetResourceActivityTool(arguments, build_snapshot_tools_context());
+  });
 }
 
 }  // namespace renodx::addons::devkit::mcp::runtime

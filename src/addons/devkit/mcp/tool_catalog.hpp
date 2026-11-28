@@ -420,6 +420,32 @@ inline const renodx::utils::mcp::ToolCatalog METADATA = {
             .input_schema = {.properties = {{"deviceIndex", {.types = {"integer"}, .minimum = 0}}}},
         },
     },
+    {
+        "devkit_list_cached_resources",
+        {
+            .title = "List Cached Resources",
+            .description = "List textures still sampled as shader resources long after their last render-target or copy write. Use this when a scene is computed once and reused instead of redrawn every frame. Counts persist across presents and do not require a snapshot.",
+            .input_schema = {
+                .properties = {
+                    {"deviceIndex", {.types = {"integer"}, .minimum = 0}},
+                    {"minSampleFrames", {.types = {"integer"}, .minimum = 1, .maximum = 100000}},
+                    {"minFramesSinceWrite", {.types = {"integer"}, .minimum = 1, .maximum = 1000000}},
+                    {"limit", {.types = {"integer"}, .minimum = 1, .maximum = 200}},
+                },
+            },
+            .annotations = {
+                .read_only_hint = true,
+            },
+        },
+    },
+    {
+        "devkit_reset_resource_activity",
+        {
+            .title = "Reset Resource Activity",
+            .description = "Clear the always-on cached-resource counters so the next window starts at the current scene.",
+            .input_schema = {.properties = {{"deviceIndex", {.types = {"integer"}, .minimum = 0}}}},
+        },
+    },
 };
 
 }  // namespace renodx::addons::devkit::mcp::tool_catalog
